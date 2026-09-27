@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body>
+    <canvas id="canvas" width="500" height="250" style="border: 1px solid black;"></canvas>
+</body>
+<script>
+    "use strict";
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+
+    const scale = 0.1;
+    const width = canvasWidth * scale;
+    const height = canvasHeight * scale;
+
+    const dt = 0.1;
+    const numParticles = 256;
+
+    const kernelRadius = 2;
+    const pressureMultiplier = 4;
+    const viscosityMultiplier = 0.5;
+    const damping = 0.01;
+
+    const wallRestitution = 0.5;
+    let gravity = [0, -1];
+
+    const positions = Array.from(
+        { length: numParticles },
+        _ => [Math.random() * width, Math.random() * height]
+    );
+    const predictedPositions = Array.from(
+        { length: numParticles },
+        _ => [0, 0]
+    );
+    const velocities = Array.from(
+        { length: numParticles },
+        _ => [0, 0]
+    );
+    const densities = Array.from(
+        { length: numParticles },
+        _ => 0
+    );
+
+    const smoothingKernel = (distance) => {
+        const normalized = distance / kernelRadius;
+        const value = Math.max(1 - normalized * normalized, 0);
+        return value * value * value;
+    };
+
+    const d_smoothingKernel = (distance) => {
+        const normalized = distance / kernelRadius;
+        const value = Math.max(1 - normalized * normalized, 0);
+        return -6 * value * value * normalized / kernelRadius;
+    };
+
+    const calculateDensity = (index) => {
+        let res = 0;
+
+        for (let i = 0; i < numParticles; i++) {
+            if (index == i) continue;
+
+            const dx = predictedPositions[i][0] - predictedPositions[index][0];
+            const dy = predictedPositions[i][1] - predictedPositions[index][1];
+            const dist = Math.sqrt(dx * dx + dy * dy)
+
+            res += smoothingKernel(dist)
+        }
+
+        return res
+    };
+
+    const calculateForce = (index) => {
+        let resx = 0;
+        let resy = 0;
+
+        for (let i = 0; i < numParticles; i++) {
+            if (index == i) continue;
+
+            // pressure
+            const dx = predictedPositions[i][0] - predictedPositions[index][0];
+            const dy = predictedPositions[i][1] - predictedPositions[index][1];
+            const dist = Math.sqrt(dx * dx + dy * dy)
+
+            const dirx = dist > 0 ? dx / dist : Math.random() - 0.5;
+            const diry = dist > 0 ? dy / dist : Math.random() - 0.5;
+
+            const density = densities[i];
+            const pressureSlope = d_smoothingKernel(dist);
+            const pressure = density * pressureSlope;
+
+            resx += pressure * dirx * pressureMultiplier;
+            resy += pressure * diry * pressureMultiplier;
+
+            // viscosity
+            const dvx = velocities[i][0] - velocities[index][0];
+            const dvy = velocities[i][1] - velocities[index][1];
+
+            const viscosityInfluence = smoothingKernel(dist);
+
+            resx += dvx * viscosityInfluence * viscosityMultiplier;
+            resy += dvy * viscosityInfluence * viscosityMultiplier;
+        }
+
+        return [resx, resy];
+    };
+
+    const simUpdate = () => {
+        for (let i = 0; i < numParticles; i++) {
+            predictedPositions[i][0] = positions[i][0] + velocities[i][0] * dt;
+            predictedPositions[i][1] = positions[i][1] + velocities[i][1] * dt;
+        }
+
+        for (let i = 0; i < numParticles; i++) {
+            densities[i] = calculateDensity(i);
+        }
+
+        for (let i = 0; i < numParticles; i++) {
+            const force = calculateForce(i);
+
+            velocities[i][0] += force[0] * dt;
+            velocities[i][1] += force[1] * dt;
+
+            velocities[i][0] += gravity[0] * dt;
+            velocities[i][1] += gravity[1] * dt;
+
+            velocities[i][0] -= damping * velocities[i][0] * dt;
+            velocities[i][1] -= damping * velocities[i][1] * dt;
+
+            positions[i][0] += velocities[i][0] * dt;
+            positions[i][1] += velocities[i][1] * dt;
+
+            if (positions[i][0] < 0) {
+                const penetration = -positions[i][0];
+                positions[i][0] = wallRestitution * penetration;
+                velocities[i][0] *= -wallRestitution;
+            }
+
+            if (positions[i][0] > width) {
+                const penetration = positions[i][0] - width;
+                positions[i][0] = width - wallRestitution * penetration;
+                velocities[i][0] *= -wallRestitution;
+            }
+
+            if (positions[i][1] < 0) {
+                const penetration = -positions[i][1];
+                positions[i][1] = wallRestitution * penetration;
+                velocities[i][1] *= -wallRestitution;
+            }
+
+            if (positions[i][1] > height - 0) {
+                const penetration = positions[i][1] - height;
+                positions[i][1] = height - wallRestitution * penetration;
+                velocities[i][1] *= -wallRestitution;
+            }
+        }
+    };
+
+    const renderUpdate = () => {
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        ctx.fillStyle = "black";
+        for (let i = 0; i < numParticles; i++) {
+            ctx.beginPath();
+            ctx.arc(
+                positions[i][0] / scale,
+                canvasHeight - positions[i][1] / scale,
+                3,
+                0, 2 * Math.PI
+            );
+            ctx.fill();
+        }
+    };
+
+    const update = () => {
+        renderUpdate();
+        simUpdate();
+
+        requestAnimationFrame(() => {
+            update();
+        });
+    }
+
+    update();
+</script>
+
+</html>
