@@ -33,19 +33,20 @@
     const yMax = 0.5 * height;
 
     const dt = 0.1;
-    const numParticles = 256;
+    const numParticles = 1;
 
     const gravityMultiplier = 1;
-    const wallRestitution = 0.85;
+    const wallRestitution = 1;
     const kernelRadius = 2;
-    const pressureMultiplier = 3;
-    const viscosityMultiplier = 0.2;
-    const damping = 0.01;
+    const pressureMultiplier = 0;
+    const viscosityMultiplier = 0;
+    const damping = 0.0;
 
     let gravity = [0, -1];
     let lastRotation = 0;
     const rotationDamp = 0.3;
 
+    // TODO: change to inertial frame + use floating origin in case of frame accelerations / moving
     const positions = Array.from(
         { length: numParticles },
         _ => [
@@ -195,7 +196,9 @@
             if (positions[i][1] < yMin) {
                 const penetration = yMin - positions[i][1];
                 positions[i][1] = yMin + wallRestitution * penetration;
-                velocities[i][1] += (1 + wallRestitution) * penetration / dt;
+                velocities[i][1] *= -wallRestitution;
+                // velocities[i][1] += penetration / dt;
+                // velocities[i][1] += (1 + wallRestitution) * penetration / dt;
             }
 
             if (positions[i][1] > yMax) {
