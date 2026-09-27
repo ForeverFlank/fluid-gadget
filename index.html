@@ -7,16 +7,18 @@
     <title>Document</title>
 </head>
 
-<body>
+<body style="text-align: center;">
     <canvas id="canvas" width="400" height="200" style="margin: 8em; border: 1px solid black;"></canvas>
     <div></div>
-    <input id="slider" type="range" min="0" max="6.283185" step="0.001">
+    <input id="slider" type="range" min="0" max="6.283185" step="0.001" style="width: 30em;">
 </body>
 <script>
     "use strict";
 
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+
+    const slider = document.getElementById("slider");
 
     const canvasWidth = canvas.width;
     const canvasHeight = canvas.height;
@@ -25,27 +27,31 @@
     const width = canvasWidth * scale;
     const height = canvasHeight * scale;
 
+    const xMin = -0.5 * width;
+    const xMax = 0.5 * width;
+    const yMin = -0.5 * height;
+    const yMax = 0.5 * height;
+
     const dt = 0.1;
     const numParticles = 256;
 
+    const gravityMultiplier = 1;
+    const wallRestitution = 0.85;
     const kernelRadius = 2;
-    const pressureMultiplier = 4;
-    const viscosityMultiplier = 0.5;
+    const pressureMultiplier = 3;
+    const viscosityMultiplier = 0.2;
     const damping = 0.01;
 
-    const wallRestitution = 0.5;
     let gravity = [0, -1];
-
-    const slider = document.getElementById("slider");
-    slider.addEventListener("input", () => {
-        const angle = slider.value - Math.PI;
-        gravity = [Math.sin(angle), -Math.cos(angle)];
-        canvas.style.transform = `rotateZ(${angle}rad)`;
-    })
+    let lastRotation = 0;
+    const rotationDamp = 0.3;
 
     const positions = Array.from(
         { length: numParticles },
-        _ => [Math.random() * width, Math.random() * height]
+        _ => [
+            (Math.random() - 0.5) * width,
+            (Math.random() - 0.5) * height
+        ]
     );
     const predictedPositions = Array.from(
         { length: numParticles },
@@ -53,7 +59,10 @@
     );
     const velocities = Array.from(
         { length: numParticles },
-        _ => [0, 0]
+        _ => [
+            (Math.random() - 0.5) * 2,
+            (Math.random() - 0.5) * 2
+        ]
     );
     const densities = Array.from(
         { length: numParticles },
@@ -124,6 +133,28 @@
     };
 
     const simUpdate = () => {
+        const sliderRotation = slider.value - Math.PI;
+        const currentRotation = lastRotation + (sliderRotation - lastRotation) * rotationDamp;
+        // const currentRotation = lastRotation + 0.2 * dt;
+        gravity = [
+            gravityMultiplier * Math.sin(currentRotation),
+            gravityMultiplier * -Math.cos(currentRotation)
+        ];
+        canvas.style.transform = `rotateZ(${currentRotation}rad)`;
+
+        const dRotation = currentRotation - lastRotation;
+        const c = Math.cos(dRotation);
+        const s = Math.sin(dRotation);
+        lastRotation = currentRotation;
+
+        for (let i = 0; i < numParticles; i++) {
+            positions[i][0] = c * positions[i][0] - s * positions[i][1];
+            positions[i][1] = s * positions[i][0] + c * positions[i][1];
+
+            velocities[i][0] = c * velocities[i][0] - s * velocities[i][1];
+            velocities[i][1] = s * velocities[i][0] + c * velocities[i][1];
+        }
+
         for (let i = 0; i < numParticles; i++) {
             predictedPositions[i][0] = positions[i][0] + velocities[i][0] * dt;
             predictedPositions[i][1] = positions[i][1] + velocities[i][1] * dt;
@@ -148,28 +179,29 @@
             positions[i][0] += velocities[i][0] * dt;
             positions[i][1] += velocities[i][1] * dt;
 
-            if (positions[i][0] < 0) {
-                const penetration = -positions[i][0];
-                positions[i][0] = wallRestitution * penetration;
-                velocities[i][0] *= -wallRestitution;
+            if (positions[i][0] < xMin) {
+                const penetration = xMin - positions[i][0];
+                positions[i][0] = xMin + wallRestitution * penetration;
+                velocities[i][0] += (1 + wallRestitution) * penetration / dt;
             }
 
-            if (positions[i][0] > width) {
-                const penetration = positions[i][0] - width;
-                positions[i][0] = width - wallRestitution * penetration;
-                velocities[i][0] *= -wallRestitution;
+            if (positions[i][0] > xMax) {
+                const penetration = positions[i][0] - xMax;
+                positions[i][0] = xMax - wallRestitution * penetration;
+                velocities[i][0] -= (1 + wallRestitution) * penetration / dt;
+
             }
 
-            if (positions[i][1] < 0) {
-                const penetration = -positions[i][1];
-                positions[i][1] = wallRestitution * penetration;
-                velocities[i][1] *= -wallRestitution;
+            if (positions[i][1] < yMin) {
+                const penetration = yMin - positions[i][1];
+                positions[i][1] = yMin + wallRestitution * penetration;
+                velocities[i][1] += (1 + wallRestitution) * penetration / dt;
             }
 
-            if (positions[i][1] > height - 0) {
-                const penetration = positions[i][1] - height;
-                positions[i][1] = height - wallRestitution * penetration;
-                velocities[i][1] *= -wallRestitution;
+            if (positions[i][1] > yMax) {
+                const penetration = positions[i][1] - yMax;
+                positions[i][1] = yMax - wallRestitution * penetration;
+                velocities[i][1] -= (1 + wallRestitution) * penetration / dt;
             }
         }
     };
@@ -182,8 +214,8 @@
         for (let i = 0; i < numParticles; i++) {
             ctx.beginPath();
             ctx.arc(
-                positions[i][0] / scale,
-                canvasHeight - positions[i][1] / scale,
+                0.5 * canvasWidth + positions[i][0] / scale,
+                0.5 * canvasHeight - positions[i][1] / scale,
                 3,
                 0, 2 * Math.PI
             );
