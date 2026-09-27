@@ -8,7 +8,9 @@
 </head>
 
 <body>
-    <canvas id="canvas" width="500" height="250" style="border: 1px solid black;"></canvas>
+    <canvas id="canvas" width="400" height="200" style="margin: 8em; border: 1px solid black;"></canvas>
+    <div></div>
+    <input id="slider" type="range" min="0" max="6.283185" step="0.001">
 </body>
 <script>
     "use strict";
@@ -33,6 +35,13 @@
 
     const wallRestitution = 0.5;
     let gravity = [0, -1];
+
+    const slider = document.getElementById("slider");
+    slider.addEventListener("input", () => {
+        const angle = slider.value - Math.PI;
+        gravity = [Math.sin(angle), -Math.cos(angle)];
+        canvas.style.transform = `rotateZ(${angle}rad)`;
+    })
 
     const positions = Array.from(
         { length: numParticles },
