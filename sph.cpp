@@ -9,8 +9,8 @@ using namespace std;
 #define WIDTH               128
 #define HEIGHT              64
 
-#define DT                  0.008
-#define SUBSTEPS            4
+#define DT                  0.1
+#define SUBSTEPS            1
 #define H                   DT / SUBSTEPS
 
 #define NUM_PARTICLES       256
