@@ -12,6 +12,7 @@
         style="margin-top: 8em; margin-bottom: 8em; border: 1px solid black;"></canvas>
     <div></div>
     <input id="slider" type="range" min="0" max="6.283185" step="0.001" style="width: 30em;">
+    <p id="debug"></p>
 </body>
 <script>
     "use strict";
@@ -36,12 +37,11 @@
     const dt = 0.1;
     const numParticles = 1;
 
-    const gravityMultiplier = 1;
     const wallRestitution = 1;
-    const kernelRadius = 2;
+    const kernelRadius = 1.5;
     const pressureMultiplier = 0;
     const viscosityMultiplier = 0;
-    const damping = 0.0;
+    const damping = 0.00;
 
     let gravity = [0, -1];
     let currentRotation = 0;
@@ -52,8 +52,9 @@
     const positions = Array.from(
         { length: numParticles },
         _ => [
-            (Math.random() - 0.5) * width,
-            (Math.random() - 0.5) * height
+            -15, 0
+            // (Math.random() - 0.5) * width,
+            // (Math.random() - 0.5) * height
         ]
     );
     const predictedPositions = Array.from(
@@ -62,10 +63,7 @@
     );
     const velocities = Array.from(
         { length: numParticles },
-        _ => [
-            0,
-            1
-        ]
+        _ => [0, 0]
     );
     const densities = Array.from(
         { length: numParticles },
@@ -138,11 +136,8 @@
     const simUpdate = () => {
         const sliderRotation = slider.value - Math.PI;
         currentRotation = lastRotation + (sliderRotation - lastRotation) * rotationDamp;
-        // const currentRotation = lastRotation + 0.2 * dt;
-        gravity = [
-            0 * Math.sin(currentRotation),
-            0 * -Math.cos(currentRotation)
-        ];
+        currentRotation = lastRotation + 0 * dt;
+        // currentRotation = -0.3
 
         const dRotation = currentRotation - lastRotation;
         lastRotation = currentRotation;
@@ -172,14 +167,17 @@
             positions[i][1] += velocities[i][1] * dt;
         }
 
-        const c = Math.cos(-currentRotation);
-        const s = Math.sin(-currentRotation);
+        const c = Math.cos(currentRotation);
+        const s = Math.sin(currentRotation);
+
+        const cd = Math.cos(dRotation);
+        const sd = Math.sin(dRotation);
 
         const walls = [
-            { normal: [-c, -s], distance: 0.5 * width },
-            { normal: [-s, +c], distance: 0.5 * height },
             { normal: [+c, +s], distance: 0.5 * width },
             { normal: [+s, -c], distance: 0.5 * height },
+            { normal: [-c, -s], distance: 0.5 * width },
+            { normal: [-s, +c], distance: 0.5 * height },
         ];
 
         for (let i = 0; i < numParticles; i++) {
@@ -191,27 +189,64 @@
                     normal[1] * (positions[i][1] + normal[1] * distance);
 
                 if (pdot < 0) {
-                    const vdot =
-                        normal[0] * velocities[i][0] +
-                        normal[1] * velocities[i][1];
+                    const wallVelx =
+                        ((cd - 1) * positions[i][0] - sd * positions[i][1]) / dt;
+                    const wallVely =
+                        (sd * positions[i][0] + (cd - 1) * positions[i][1]) / dt;
 
-                    velocities[i][0] -= 2 * vdot * normal[0];
-                    velocities[i][1] -= 2 * vdot * normal[1];
+
+                    // console.log(pdot)
+                    // console.log(wallVelx)
+                    // console.log(wallVely)
+
+
+                    const relVelx = velocities[i][0] - wallVelx;
+                    const relVely = velocities[i][1] - wallVely;
+
+                    const vdot = normal[0] * relVelx + normal[1] * relVely;
+
+                    const reflectedVelx = relVelx - (1 + wallRestitution) * vdot * normal[0] + wallVelx;
+                    const reflectedVely = relVely - (1 + wallRestitution) * vdot * normal[1] + wallVely;
+
+                    const dtFrac = pdot / vdot;
+                    positions[i][0] -= velocities[i][0] * dtFrac;
+                    positions[i][1] -= velocities[i][1] * dtFrac;
+                    positions[i][0] += reflectedVelx * dtFrac;
+                    positions[i][1] += reflectedVely * dtFrac;
+
+                    velocities[i][0] = reflectedVelx;
+                    velocities[i][1] = reflectedVely;
+
+                    console.log("!")
+                    // velocities[i][0] = wallVelx;
+                    // velocities[i][1] = wallVely;
+                    // velocities[i][0] -= (1 + wallRestitution) * vdot * normal[0];
+                    // velocities[i][1] -= (1 + wallRestitution) * vdot * normal[1];
                 }
             }
         }
     };
 
     const renderUpdate = () => {
-        canvas.style.transform = `rotateZ(${currentRotation}rad)`;
+        canvas.style.transform = `rotateZ(${-currentRotation}rad)`;
+
+        const Ep = -positions[0][1] * gravity[1];
+        const Ek = 0.5 * (
+            velocities[0][0] * velocities[0][0] +
+            velocities[0][1] * velocities[0][1]
+        )
+        const E = Ep + Ek;
+
+        document.getElementById("debug").innerText =
+            `${Math.round(E * 100) / 100}`;
 
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
         ctx.fillStyle = "black";
 
-        const c = Math.cos(currentRotation);
-        const s = Math.sin(currentRotation);
+        const c = Math.cos(-currentRotation);
+        const s = Math.sin(-currentRotation);
 
         for (let i = 0; i < numParticles; i++) {
             const localx = c * positions[i][0] - s * positions[i][1];
@@ -232,9 +267,8 @@
         renderUpdate();
         simUpdate();
 
-        requestAnimationFrame(() => {
-            update();
-        });
+        // setTimeout(update, 100)
+        requestAnimationFrame(update);
     }
 
     update();
