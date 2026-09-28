@@ -1,7 +1,6 @@
 #include <cinttypes>
 #include <cmath>
 #include <iostream>
-#include <random>
 #include <sstream>
 
 using namespace std;
@@ -15,21 +14,16 @@ using namespace std;
 #define H                   DT / SUBSTEPS
 
 #define NUM_PARTICLES       256
-#define PARTICLES_PER_CELL  8
+#define PARTICLES_PER_CELL  16
 
-#define KERNEL_RADIUS       1
+#define KERNEL_RADIUS       8
 #define WALL_RESTITUTION    0.85
-#define PRESSURE_MULT       20
+#define PRESSURE_MULT       10
 #define VISCOSITY_MULT      0
 #define DAMPING             0.0
 
 #define CONTAILER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_SIZE   (int)ceil(CONTAILER_HYP / KERNEL_RADIUS)
-
-
-random_device dev;
-mt19937 rng(dev());
-uniform_real_distribution<> uniform(0.f, 1.f);
 
 
 float gravity_x = 0;
@@ -110,6 +104,8 @@ void update_spatial_grid(
             &yi
         );
 
+        if (spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size == PARTICLES_PER_CELL - 1) continue;
+
         spatial_grid[yi * SPATIAL_GRID_SIZE + xi].array[
             spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size
         ] = i;
@@ -150,7 +146,7 @@ void nearby_indices(
             for (int i = 0; i < cell.size; i++)
             {
                 out_indices[*out_indices_size] = cell.array[i];
-                *out_indices_size++;
+                (*out_indices_size)++;
             }
         }
     }
@@ -165,7 +161,6 @@ float calculate_density(
 {
     float res = 0;
 
-    // xi, yi = spatialGridCoord(index);
     int indices[9 * PARTICLES_PER_CELL];
     int indices_size = 0;
 
@@ -179,7 +174,6 @@ float calculate_density(
     );
 
     for (int j = 0; j < indices_size; j++)
-        // for (int i = 0; i < NUM_PARTICLES; i++)
     {
         int i = indices[j];
         if (index == i) continue;
@@ -203,6 +197,7 @@ void calculate_force(
     float *vel_xs,
     float *vel_ys,
     float *densities,
+    SpatialGridCell *spatial_grid,
     int index,
     float *out_force_x,
     float *out_force_y)
@@ -210,11 +205,21 @@ void calculate_force(
     float resx = gravity_x;
     float resy = gravity_y;
 
-    // xi, yi = spatialGridCoord(index);
+    int indices[9 * PARTICLES_PER_CELL];
+    int indices_size = 0;
 
-    // for (i of nearby_indices(index))
-    for (int i = 0; i < NUM_PARTICLES; i++)
+    nearby_indices(
+        pred_pos_xs,
+        pred_pos_ys,
+        spatial_grid,
+        index,
+        indices,
+        &indices_size
+    );
+
+    for (int j = 0; j < indices_size; j++)
     {
+        int i = indices[j];
         if (index == i) continue;
 
         float dx = pred_pos_xs[i] - pred_pos_xs[index];
@@ -223,9 +228,6 @@ void calculate_force(
 
         if (dist > KERNEL_RADIUS) continue;
 
-        // pressure
-        // float dirx = dist > 0 ? dx / dist : random() - 0.5;
-        // float diry = dist > 0 ? dy / dist : random() - 0.5;
         float dirx = dist > 0 ? dx / dist : 0;
         float diry = dist > 0 ? dy / dist : 0;
 
@@ -299,6 +301,7 @@ void sim_update(
             vel_xs,
             vel_ys,
             densities,
+            spatial_grid,
             i,
             &force_x,
             &force_y
@@ -377,10 +380,16 @@ int main()
     float pos_xs[NUM_PARTICLES] = {0};
     float pos_ys[NUM_PARTICLES] = {0};
 
+    float counter = 0;
+
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        pos_xs[i] = (uniform(rng) - 0.5f) * WIDTH;
-        pos_ys[i] = (uniform(rng) - 0.5f) * HEIGHT;
+        float x = fmod(counter, 1.f);
+        float y = (counter - x) * 0.03f;
+
+        pos_xs[i] = (x - 0.5f) * WIDTH;
+        pos_ys[i] = (y - 0.5f) * HEIGHT;
+        counter += 0.03;
     }
 
     float pred_pos_xs[NUM_PARTICLES] = {0};
