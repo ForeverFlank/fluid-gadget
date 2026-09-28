@@ -6,23 +6,25 @@
 
 using namespace std;
 
-#define WIDTH               64
-#define HEIGHT              32
 
+#define WIDTH               128
+#define HEIGHT              64
 
 #define DT                  0.008
 #define SUBSTEPS            4
-
+#define H                   DT / SUBSTEPS
 
 #define NUM_PARTICLES       256
+#define PARTICLES_PER_CELL  8
 
+#define KERNEL_RADIUS       1
 #define WALL_RESTITUTION    0.85
-#define KERNEL_RADIUS       0.05
 #define PRESSURE_MULT       20
 #define VISCOSITY_MULT      0
 #define DAMPING             0.0
 
-const float h = DT / SUBSTEPS;
+#define CONTAILER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
+#define SPATIAL_GRID_SIZE   (int)ceil(CONTAILER_HYP / KERNEL_RADIUS)
 
 
 random_device dev;
@@ -33,11 +35,16 @@ uniform_real_distribution<> uniform(0.f, 1.f);
 float gravity_x = 0;
 float gravity_y = -10;
 float current_rotation = 0;
-float lastRotation = current_rotation;
+float last_rotation = current_rotation;
 float rotation_damp = 0.3;
 
-float container_hyp = sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT);
-int spatial_grid_size = (int)ceil(container_hyp / KERNEL_RADIUS);
+
+struct SpatialGridCell
+{
+    int array[PARTICLES_PER_CELL];
+    uint16_t size;
+};
+
 
 float smoothing_kernel(float distance)
 {
@@ -53,6 +60,7 @@ float d_smoothing_kernel(float distance)
     return -6.f * value * value * normalized / KERNEL_RADIUS;
 }
 
+
 void spatial_grid_coord(
     float *pred_pos_xs,
     float *pred_pos_ys,
@@ -60,31 +68,120 @@ void spatial_grid_coord(
     int16_t *out_xi,
     int16_t *out_yi)
 {
-    int16_t xi = (int16_t)floor((pred_pos_xs[index] + container_hyp * 0.5) / KERNEL_RADIUS);
-    int16_t yi = (int16_t)floor((pred_pos_ys[index] + container_hyp * 0.5) / KERNEL_RADIUS);
+    int16_t xi =
+        (int16_t)floor(
+            (pred_pos_xs[index] + CONTAILER_HYP * 0.5) / KERNEL_RADIUS);
+    int16_t yi =
+        (int16_t)floor(
+            (pred_pos_ys[index] + CONTAILER_HYP * 0.5) / KERNEL_RADIUS);
 
     if (xi < 0) xi = 0;
-    if (xi >= spatial_grid_size) xi = spatial_grid_size - 1;
+    if (xi >= SPATIAL_GRID_SIZE) xi = SPATIAL_GRID_SIZE - 1;
 
     if (yi < 0) yi = 0;
-    if (yi >= spatial_grid_size) yi = spatial_grid_size - 1;
+    if (yi >= SPATIAL_GRID_SIZE) yi = SPATIAL_GRID_SIZE - 1;
 
     *out_xi = xi;
     *out_yi = yi;
 }
 
+void update_spatial_grid(
+    float *pred_pos_xs,
+    float *pred_pos_ys,
+    SpatialGridCell *spatial_grid)
+{
+    for (int i = 0; i < SPATIAL_GRID_SIZE; i++)
+    {
+        for (int j = 0; j < SPATIAL_GRID_SIZE; j++)
+        {
+            spatial_grid[j * SPATIAL_GRID_SIZE + i].size = 0;
+        }
+    }
+
+    for (int i = 0; i < NUM_PARTICLES; i++)
+    {
+        int16_t xi, yi;
+
+        spatial_grid_coord(
+            pred_pos_xs,
+            pred_pos_ys,
+            i,
+            &xi,
+            &yi
+        );
+
+        spatial_grid[yi * SPATIAL_GRID_SIZE + xi].array[
+            spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size
+        ] = i;
+
+        spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size += 1;
+    }
+};
+
+void nearby_indices(
+    float *pred_pos_xs,
+    float *pred_pos_ys,
+    SpatialGridCell *spatial_grid,
+    int index,
+    int *out_indices,
+    int *out_indices_size)
+{
+    int16_t xi, yi;
+
+    spatial_grid_coord(
+        pred_pos_xs,
+        pred_pos_ys,
+        index,
+        &xi,
+        &yi
+    );
+
+    int xiMin = max(xi - 1, 0);
+    int xiMax = min(xi + 1, SPATIAL_GRID_SIZE - 1);
+    int yiMin = max(yi - 1, 0);
+    int yiMax = min(yi + 1, SPATIAL_GRID_SIZE - 1);
+
+    for (int xj = xiMin; xj <= xiMax; xj++)
+    {
+        for (int yj = yiMin; yj <= yiMax; yj++)
+        {
+            SpatialGridCell cell = spatial_grid[yj * SPATIAL_GRID_SIZE + xj];
+
+            for (int i = 0; i < cell.size; i++)
+            {
+                out_indices[*out_indices_size] = cell.array[i];
+                *out_indices_size++;
+            }
+        }
+    }
+}
+
+
 float calculate_density(
     float *pred_pos_xs,
     float *pred_pos_ys,
+    SpatialGridCell *spatial_grid,
     int index)
 {
     float res = 0;
 
     // xi, yi = spatialGridCoord(index);
+    int indices[9 * PARTICLES_PER_CELL];
+    int indices_size = 0;
 
-    // for (i of nearbyIndices(index))
-    for (int i = 0; i < NUM_PARTICLES; i++)
+    nearby_indices(
+        pred_pos_xs,
+        pred_pos_ys,
+        spatial_grid,
+        index,
+        indices,
+        &indices_size
+    );
+
+    for (int j = 0; j < indices_size; j++)
+        // for (int i = 0; i < NUM_PARTICLES; i++)
     {
+        int i = indices[j];
         if (index == i) continue;
 
         float dx = pred_pos_xs[i] - pred_pos_xs[index];
@@ -115,7 +212,7 @@ void calculate_force(
 
     // xi, yi = spatialGridCoord(index);
 
-    // for (i of nearbyIndices(index))
+    // for (i of nearby_indices(index))
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
         if (index == i) continue;
@@ -160,28 +257,34 @@ void sim_update(
     float *pred_pos_ys,
     float *vel_xs,
     float *vel_ys,
-    float *densities)
+    float *densities,
+    SpatialGridCell *spatial_grid)
 {
-    // current_rotation = lastRotation + (sliderRotation - lastRotation) * rotation_damp;
-    // current_rotation = lastRotation + 0.8 * h;
+    // current_rotation = last_rotation + (sliderRotation - last_rotation) * rotation_damp;
+    // current_rotation = last_rotation + 0.8 * H;
     // current_rotation = -0.9
 
-    float d_rotation = current_rotation - lastRotation;
-    lastRotation = current_rotation;
+    float d_rotation = current_rotation - last_rotation;
+    last_rotation = current_rotation;
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        pred_pos_xs[i] = pos_xs[i] + vel_xs[i] * h;
-        pred_pos_ys[i] = pos_ys[i] + vel_ys[i] * h;
+        pred_pos_xs[i] = pos_xs[i] + vel_xs[i] * H;
+        pred_pos_ys[i] = pos_ys[i] + vel_ys[i] * H;
     }
 
 
+    update_spatial_grid(pred_pos_xs, pred_pos_ys, spatial_grid);
 
-    // updateSpatialGrid();
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        densities[i] = calculate_density(pred_pos_xs, pred_pos_ys, i);
+        densities[i] = calculate_density(
+            pred_pos_xs,
+            pred_pos_ys,
+            spatial_grid,
+            i
+        );
     }
 
 
@@ -201,14 +304,14 @@ void sim_update(
             &force_y
         );
 
-        vel_xs[i] += force_x * h;
-        vel_ys[i] += force_y * h;
+        vel_xs[i] += force_x * H;
+        vel_ys[i] += force_y * H;
 
-        vel_xs[i] *= (1 - DAMPING * h);
-        vel_ys[i] *= (1 - DAMPING * h);
+        vel_xs[i] *= (1 - DAMPING * H);
+        vel_ys[i] *= (1 - DAMPING * H);
 
-        pos_xs[i] += vel_xs[i] * h;
-        pos_ys[i] += vel_ys[i] * h;
+        pos_xs[i] += vel_xs[i] * H;
+        pos_ys[i] += vel_ys[i] * H;
     }
 
 
@@ -239,8 +342,8 @@ void sim_update(
 
             if (pdot < 0)
             {
-                float wall_vel_x = ((cd - 1) * pos_xs[i] - sd * pos_ys[i]) / h;
-                float wall_vel_y = (sd * pos_xs[i] + (cd - 1) * pos_ys[i]) / h;
+                float wall_vel_x = ((cd - 1) * pos_xs[i] - sd * pos_ys[i]) / H;
+                float wall_vel_y = (sd * pos_xs[i] + (cd - 1) * pos_ys[i]) / H;
 
                 float rel_vel_x = vel_xs[i] - wall_vel_x;
                 float rel_vel_y = vel_ys[i] - wall_vel_y;
@@ -267,6 +370,8 @@ void sim_update(
 };
 
 
+
+
 int main()
 {
     float pos_xs[NUM_PARTICLES] = {0};
@@ -285,8 +390,8 @@ int main()
     float vel_ys[NUM_PARTICLES] = {0};
 
     float densities[NUM_PARTICLES] = {0};
+    SpatialGridCell spatial_grid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
-    // uint16_t spatial_grid[spatial_grid_size][spatial_grid_size][16];
 
     const int DISPLAY_WIDTH = 32;
     const int DISPLAY_HEIGHT = 16;
@@ -300,7 +405,8 @@ int main()
             pred_pos_ys,
             vel_xs,
             vel_ys,
-            densities
+            densities,
+            spatial_grid
         );
 
         bool buf[DISPLAY_WIDTH + 1][DISPLAY_HEIGHT + 1] = {false};
@@ -337,41 +443,3 @@ int main()
 
     return 0;
 }
-
-// const updateSpatialGrid = () = > {
-//     for (i = 0; i < spatialGridSize; i++)
-//     {
-//         for (j = 0; j < spatialGridSize; j++)
-//         {
-//             spatialGrid[i][j].length = 0;   // only in JS!
-//         }
-//     }
-
-//     for (i = 0; i < NUM_PARTICLES; i++)
-//     {
-//         xi, yi] = spatialGridCoord(i);
-
-//         spatialGrid[xi][yi].push(i);
-//     }
-// };
-
-// const nearbyIndices = (index) = > {
-//     res = [];
-
-//     xi, yi] = spatialGridCoord(index);
-
-//     const xiMin = Math.max(xi - 1, 0);
-//     const xiMax = Math.min(xi + 1, spatialGridSize - 1);
-//     const yiMin = Math.max(yi - 1, 0);
-//     const yiMax = Math.min(yi + 1, spatialGridSize - 1);
-
-//     for (xi = xiMin; xi <= xiMax; xi++)
-//     {
-//         for (yi = yiMin; yi <= yiMax; yi++)
-//         {
-//             res = res.concat(spatialGrid[xi][yi]);
-//         }
-//     }
-
-//     return res;
-// }
