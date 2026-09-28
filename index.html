@@ -38,11 +38,11 @@
     const substeps = 4;
     const h = dt / substeps;
 
-    const numParticles = 512;
+    const numParticles = 1024;
 
     const wallRestitution = 0.85;
-    const kernelRadius = 0.1;
-    const pressureMultiplier = 30;
+    const kernelRadius = 0.08;
+    const pressureMultiplier = 20;
     const viscosityMultiplier = 0;
     const damping = 0.0;
 
@@ -51,7 +51,6 @@
     let lastRotation = currentRotation;
     const rotationDamp = 0.3;
 
-    // TODO: change to inertial frame + use floating origin in case of frame accelerations / moving
     const positions = Array.from(
         { length: numParticles },
         _ => [
@@ -72,6 +71,17 @@
         _ => 0
     );
 
+    const containerHyp = Math.sqrt(width * width, height * height);
+    const spatialGridSize = Math.ceil(containerHyp / kernelRadius);
+
+    const spatialGrid = Array.from(
+        { length: spatialGridSize },
+        _ => Array.from(
+            { length: spatialGridSize },
+            _ => []
+        )
+    );
+
     const smoothingKernel = (distance) => {
         const normalized = distance / kernelRadius;
         const value = Math.max(1 - normalized * normalized, 0);
@@ -84,15 +94,67 @@
         return -6 * value * value * normalized / kernelRadius;
     };
 
+    const spatialGridCoord = (index) => {
+        let xi = Math.floor(
+            (predictedPositions[index][0] + containerHyp * 0.5) / kernelRadius);
+        let yi = Math.floor(
+            (predictedPositions[index][1] + containerHyp * 0.5) / kernelRadius);
+
+        if (xi < 0) xi = 0;
+        if (xi >= spatialGridSize) xi = spatialGridSize - 1;
+
+        if (yi < 0) yi = 0;
+        if (yi >= spatialGridSize) yi = spatialGridSize - 1;
+
+        return [xi, yi];
+    }
+
+    const updateSpatialGrid = () => {
+        for (let i = 0; i < spatialGridSize; i++) {
+            for (let j = 0; j < spatialGridSize; j++) {
+                spatialGrid[i][j].length = 0;   // only in JS!
+            }
+        }
+
+        for (let i = 0; i < numParticles; i++) {
+            let [xi, yi] = spatialGridCoord(i);
+
+            spatialGrid[xi][yi].push(i);
+        }
+    };
+
+    const nearbyIndices = (index) => {
+        let res = [];
+
+        let [xi, yi] = spatialGridCoord(index);
+
+        const xiMin = Math.max(xi - 1, 0);
+        const xiMax = Math.min(xi + 1, spatialGridSize - 1);
+        const yiMin = Math.max(yi - 1, 0);
+        const yiMax = Math.min(yi + 1, spatialGridSize - 1);
+
+        for (let xi = xiMin; xi <= xiMax; xi++) {
+            for (let yi = yiMin; yi <= yiMax; yi++) {
+                res = res.concat(spatialGrid[xi][yi]);
+            }
+        }
+
+        return res;
+    }
+
     const calculateDensity = (index) => {
         let res = 0;
 
-        for (let i = 0; i < numParticles; i++) {
+        let [xi, yi] = spatialGridCoord(index);
+
+        for (let i of nearbyIndices(index)) {
             if (index == i) continue;
 
             const dx = predictedPositions[i][0] - predictedPositions[index][0];
             const dy = predictedPositions[i][1] - predictedPositions[index][1];
             const dist = Math.sqrt(dx * dx + dy * dy)
+
+            if (dist > kernelRadius) continue;
 
             res += smoothingKernel(dist)
         }
@@ -104,13 +166,17 @@
         let resx = 0;
         let resy = 0;
 
-        for (let i = 0; i < numParticles; i++) {
+        let [xi, yi] = spatialGridCoord(index);
+
+        for (let i of nearbyIndices(index)) {
             if (index == i) continue;
 
             // pressure
             const dx = predictedPositions[i][0] - predictedPositions[index][0];
             const dy = predictedPositions[i][1] - predictedPositions[index][1];
-            const dist = Math.sqrt(dx * dx + dy * dy)
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > kernelRadius) continue;
 
             const dirx = dist > 0 ? dx / dist : Math.random() - 0.5;
             const diry = dist > 0 ? dy / dist : Math.random() - 0.5;
@@ -148,6 +214,9 @@
             predictedPositions[i][0] = positions[i][0] + velocities[i][0] * h;
             predictedPositions[i][1] = positions[i][1] + velocities[i][1] * h;
         }
+
+        updateSpatialGrid();
+
 
         for (let i = 0; i < numParticles; i++) {
             densities[i] = calculateDensity(i);
@@ -196,19 +265,15 @@
                     const wallVely =
                         (sd * positions[i][0] + (cd - 1) * positions[i][1]) / h;
 
-
-                    // console.log(pdot)
-                    // console.log(wallVelx)
-                    // console.log(wallVely)
-
-
                     const relVelx = velocities[i][0] - wallVelx;
                     const relVely = velocities[i][1] - wallVely;
 
                     const vdot = normal[0] * relVelx + normal[1] * relVely;
 
-                    const reflectedVelx = relVelx - (1 + wallRestitution) * vdot * normal[0] + wallVelx;
-                    const reflectedVely = relVely - (1 + wallRestitution) * vdot * normal[1] + wallVely;
+                    const reflectedVelx =
+                        relVelx - (1 + wallRestitution) * vdot * normal[0] + wallVelx;
+                    const reflectedVely =
+                        relVely - (1 + wallRestitution) * vdot * normal[1] + wallVely;
 
                     const dtFrac = pdot / vdot;
                     positions[i][0] -= velocities[i][0] * dtFrac;
@@ -218,11 +283,6 @@
 
                     velocities[i][0] = reflectedVelx;
                     velocities[i][1] = reflectedVely;
-
-                    // velocities[i][0] = wallVelx;
-                    // velocities[i][1] = wallVely;
-                    // velocities[i][0] -= (1 + wallRestitution) * vdot * normal[0];
-                    // velocities[i][1] -= (1 + wallRestitution) * vdot * normal[1];
                 }
             }
         }
@@ -241,6 +301,8 @@
         // document.getElementById("debug").innerText =
         //     `${Math.round(E * 100) / 100}`;
 
+        // document.getElementById("debug").innerText = spatialGrid;
+
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
@@ -257,7 +319,7 @@
             ctx.arc(
                 0.5 * canvasWidth + localx / scale,
                 0.5 * canvasHeight - localy / scale,
-                2,
+                1.5,
                 0, 2 * Math.PI
             );
             ctx.fill();
@@ -266,6 +328,7 @@
 
     const update = () => {
         renderUpdate();
+
         for (let i = 0; i < substeps; i++) {
             simUpdate();
         }
