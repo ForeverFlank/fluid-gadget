@@ -29,11 +29,12 @@ void setup()
     // display.display();
     // delay(100);
 
-    display.clearDisplay();
 }
 
 void loop()
 {
+    display.clearDisplay();
+
     display_buffer[i]++;
     i++;
     if (i == 1024) i = 0;
@@ -41,5 +42,5 @@ void loop()
     display.drawBitmap(0, 0, display_buffer, 128, 64, 1);
     display.display();
 
-    delay(100);
+    delay(1);
 }

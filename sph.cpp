@@ -22,15 +22,14 @@ using namespace std;
 #define VISCOSITY_MULT      0
 #define DAMPING             0.0
 
-#define CONTAILER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
-#define SPATIAL_GRID_SIZE   (int)ceil(CONTAILER_HYP / KERNEL_RADIUS)
+#define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
+#define SPATIAL_GRID_SIZE   (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
 
 
-float gravity_x = 0;
-float gravity_y = -10;
-float current_rotation = 0;
-float last_rotation = current_rotation;
-float rotation_damp = 0.3;
+float gravityX = 0;
+float gravityY = -10;
+float currentRotation = 0;
+float lastRotation = currentRotation;
 
 
 struct SpatialGridCell
@@ -40,14 +39,14 @@ struct SpatialGridCell
 };
 
 
-float smoothing_kernel(float distance)
+float smoothingKernel(float distance)
 {
     float normalized = distance / KERNEL_RADIUS;
     float value = max(1.f - normalized * normalized, 0.f);
     return value * value * value;
 }
 
-float d_smoothing_kernel(float distance)
+float d_smoothingKernel(float distance)
 {
     float normalized = distance / KERNEL_RADIUS;
     float value = max(1 - normalized * normalized, 0.f);
@@ -55,19 +54,19 @@ float d_smoothing_kernel(float distance)
 }
 
 
-void spatial_grid_coord(
-    float *pred_pos_xs,
-    float *pred_pos_ys,
+void spatialGridCoord(
+    float *predPosXs,
+    float *predPosYs,
     int index,
     int16_t *out_xi,
     int16_t *out_yi)
 {
     int16_t xi =
         (int16_t)floor(
-            (pred_pos_xs[index] + CONTAILER_HYP * 0.5) / KERNEL_RADIUS);
+            (predPosXs[index] + CONTAINER_HYP * 0.5) / KERNEL_RADIUS);
     int16_t yi =
         (int16_t)floor(
-            (pred_pos_ys[index] + CONTAILER_HYP * 0.5) / KERNEL_RADIUS);
+            (predPosYs[index] + CONTAINER_HYP * 0.5) / KERNEL_RADIUS);
 
     if (xi < 0) xi = 0;
     if (xi >= SPATIAL_GRID_SIZE) xi = SPATIAL_GRID_SIZE - 1;
@@ -79,16 +78,16 @@ void spatial_grid_coord(
     *out_yi = yi;
 }
 
-void update_spatial_grid(
-    float *pred_pos_xs,
-    float *pred_pos_ys,
-    SpatialGridCell *spatial_grid)
+void updateSpatialGrid(
+    float *predPosXs,
+    float *predPosYs,
+    SpatialGridCell *spatialGrid)
 {
     for (int i = 0; i < SPATIAL_GRID_SIZE; i++)
     {
         for (int j = 0; j < SPATIAL_GRID_SIZE; j++)
         {
-            spatial_grid[j * SPATIAL_GRID_SIZE + i].size = 0;
+            spatialGrid[j * SPATIAL_GRID_SIZE + i].size = 0;
         }
     }
 
@@ -96,37 +95,37 @@ void update_spatial_grid(
     {
         int16_t xi, yi;
 
-        spatial_grid_coord(
-            pred_pos_xs,
-            pred_pos_ys,
+        spatialGridCoord(
+            predPosXs,
+            predPosYs,
             i,
             &xi,
             &yi
         );
 
-        if (spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size == PARTICLES_PER_CELL - 1) continue;
+        if (spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size == PARTICLES_PER_CELL - 1) continue;
 
-        spatial_grid[yi * SPATIAL_GRID_SIZE + xi].array[
-            spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size
+        spatialGrid[yi * SPATIAL_GRID_SIZE + xi].array[
+            spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size
         ] = i;
 
-        spatial_grid[yi * SPATIAL_GRID_SIZE + xi].size += 1;
+        spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size += 1;
     }
 };
 
-void nearby_indices(
-    float *pred_pos_xs,
-    float *pred_pos_ys,
-    SpatialGridCell *spatial_grid,
+void nearbyIndices(
+    float *predPosXs,
+    float *predPosYs,
+    SpatialGridCell *spatialGrid,
     int index,
     int *out_indices,
-    int *out_indices_size)
+    int *out_indicesSize)
 {
     int16_t xi, yi;
 
-    spatial_grid_coord(
-        pred_pos_xs,
-        pred_pos_ys,
+    spatialGridCoord(
+        predPosXs,
+        predPosYs,
         index,
         &xi,
         &yi
@@ -141,89 +140,89 @@ void nearby_indices(
     {
         for (int yj = yiMin; yj <= yiMax; yj++)
         {
-            SpatialGridCell cell = spatial_grid[yj * SPATIAL_GRID_SIZE + xj];
+            SpatialGridCell cell = spatialGrid[yj * SPATIAL_GRID_SIZE + xj];
 
             for (int i = 0; i < cell.size; i++)
             {
-                out_indices[*out_indices_size] = cell.array[i];
-                (*out_indices_size)++;
+                out_indices[*out_indicesSize] = cell.array[i];
+                (*out_indicesSize)++;
             }
         }
     }
 }
 
 
-float calculate_density(
-    float *pred_pos_xs,
-    float *pred_pos_ys,
-    SpatialGridCell *spatial_grid,
+float calculateDensity(
+    float *predPosXs,
+    float *predPosYs,
+    SpatialGridCell *spatialGrid,
     int index)
 {
     float res = 0;
 
     int indices[9 * PARTICLES_PER_CELL];
-    int indices_size = 0;
+    int indicesSize = 0;
 
-    nearby_indices(
-        pred_pos_xs,
-        pred_pos_ys,
-        spatial_grid,
+    nearbyIndices(
+        predPosXs,
+        predPosYs,
+        spatialGrid,
         index,
         indices,
-        &indices_size
+        &indicesSize
     );
 
-    for (int j = 0; j < indices_size; j++)
+    for (int j = 0; j < indicesSize; j++)
     {
         int i = indices[j];
         if (index == i) continue;
 
-        float dx = pred_pos_xs[i] - pred_pos_xs[index];
-        float dy = pred_pos_ys[i] - pred_pos_ys[index];
+        float dx = predPosXs[i] - predPosXs[index];
+        float dy = predPosYs[i] - predPosYs[index];
         float dist = sqrt(dx * dx + dy * dy);
 
         if (dist > KERNEL_RADIUS) continue;
 
-        res += smoothing_kernel(dist);
+        res += smoothingKernel(dist);
     }
 
     return res;
 }
 
 
-void calculate_force(
-    float *pred_pos_xs,
-    float *pred_pos_ys,
-    float *vel_xs,
-    float *vel_ys,
+void calculateForce(
+    float *predPosXs,
+    float *predPosYs,
+    float *velXs,
+    float *velYs,
     float *densities,
-    SpatialGridCell *spatial_grid,
+    SpatialGridCell *spatialGrid,
     int index,
-    float *out_force_x,
-    float *out_force_y)
+    float *out_forceX,
+    float *out_forceY)
 {
-    float resx = gravity_x;
-    float resy = gravity_y;
+    float forceX = gravityX;
+    float forceY = gravityY;
 
     int indices[9 * PARTICLES_PER_CELL];
-    int indices_size = 0;
+    int indicesSize = 0;
 
-    nearby_indices(
-        pred_pos_xs,
-        pred_pos_ys,
-        spatial_grid,
+    nearbyIndices(
+        predPosXs,
+        predPosYs,
+        spatialGrid,
         index,
         indices,
-        &indices_size
+        &indicesSize
     );
 
-    for (int j = 0; j < indices_size; j++)
+    for (int j = 0; j < indicesSize; j++)
     {
         int i = indices[j];
         if (index == i) continue;
 
-        float dx = pred_pos_xs[i] - pred_pos_xs[index];
-        float dy = pred_pos_ys[i] - pred_pos_ys[index];
+        float dx = predPosXs[i] - predPosXs[index];
+        float dy = predPosYs[i] - predPosYs[index];
         float dist = sqrt(dx * dx + dy * dy);
 
         if (dist > KERNEL_RADIUS) continue;
@@ -232,101 +231,95 @@ void calculate_force(
         float diry = dist > 0 ? dy / dist : 0;
 
         float density = densities[i];
-        float pressureSlope = d_smoothing_kernel(dist);
+        float pressureSlope = d_smoothingKernel(dist);
         float pressure = density * pressureSlope;
 
-        resx += pressure * dirx * PRESSURE_MULT;
-        resy += pressure * diry * PRESSURE_MULT;
+        forceX += pressure * dirx * PRESSURE_MULT;
+        forceY += pressure * diry * PRESSURE_MULT;
 
         // viscosity
-        float dvx = vel_xs[i] - vel_xs[index];
-        float dvy = vel_ys[i] - vel_ys[index];
+        float dvx = velXs[i] - velXs[index];
+        float dvy = velYs[i] - velYs[index];
 
-        float viscosityInfluence = smoothing_kernel(dist);
+        float viscosityInfluence = smoothingKernel(dist);
 
-        resx += dvx * viscosityInfluence * VISCOSITY_MULT;
-        resy += dvy * viscosityInfluence * VISCOSITY_MULT;
+        forceX += dvx * viscosityInfluence * VISCOSITY_MULT;
+        forceY += dvy * viscosityInfluence * VISCOSITY_MULT;
     }
 
-    *out_force_x = resx;
-    *out_force_y = resy;
+    *out_forceX = forceX;
+    *out_forceY = forceY;
 }
 
-void sim_update(
-    float *pos_xs,
-    float *pos_ys,
-    float *pred_pos_xs,
-    float *pred_pos_ys,
-    float *vel_xs,
-    float *vel_ys,
+void updateSim(
+    float *posXs,
+    float *posYs,
+    float *predPosXs,
+    float *predPosYs,
+    float *velXs,
+    float *velYs,
     float *densities,
-    SpatialGridCell *spatial_grid)
+    SpatialGridCell *spatialGrid)
 {
-    // current_rotation = last_rotation + (sliderRotation - last_rotation) * rotation_damp;
-    // current_rotation = last_rotation + 0.8 * H;
-    // current_rotation = -0.9
-
-    float d_rotation = current_rotation - last_rotation;
-    last_rotation = current_rotation;
+    float dRotation = currentRotation - lastRotation;
+    lastRotation = currentRotation;
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        pred_pos_xs[i] = pos_xs[i] + vel_xs[i] * H;
-        pred_pos_ys[i] = pos_ys[i] + vel_ys[i] * H;
+        predPosXs[i] = posXs[i] + velXs[i] * H;
+        predPosYs[i] = posYs[i] + velYs[i] * H;
     }
 
 
-    update_spatial_grid(pred_pos_xs, pred_pos_ys, spatial_grid);
+    updateSpatialGrid(predPosXs, predPosYs, spatialGrid);
 
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        densities[i] = calculate_density(
-            pred_pos_xs,
-            pred_pos_ys,
-            spatial_grid,
+        densities[i] = calculateDensity(
+            predPosXs,
+            predPosYs,
+            spatialGrid,
             i
         );
     }
-
 
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
         float force_x, force_y;
 
-        calculate_force(
-            pred_pos_xs,
-            pred_pos_ys,
-            vel_xs,
-            vel_ys,
+        calculateForce(
+            predPosXs,
+            predPosYs,
+            velXs,
+            velYs,
             densities,
-            spatial_grid,
+            spatialGrid,
             i,
             &force_x,
             &force_y
         );
 
-        vel_xs[i] += force_x * H;
-        vel_ys[i] += force_y * H;
+        velXs[i] += force_x * H;
+        velYs[i] += force_y * H;
 
-        vel_xs[i] *= (1 - DAMPING * H);
-        vel_ys[i] *= (1 - DAMPING * H);
+        velXs[i] *= (1 - DAMPING * H);
+        velYs[i] *= (1 - DAMPING * H);
 
-        pos_xs[i] += vel_xs[i] * H;
-        pos_ys[i] += vel_ys[i] * H;
+        posXs[i] += velXs[i] * H;
+        posYs[i] += velYs[i] * H;
     }
 
 
+    float c = cos(currentRotation);
+    float s = sin(currentRotation);
 
-    float c = cos(current_rotation);
-    float s = sin(current_rotation);
+    float cd = cos(dRotation);
+    float sd = sin(dRotation);
 
-    float cd = cos(d_rotation);
-    float sd = sin(d_rotation);
-
-    float normal_xs[] = {c, s, -c, -s};
-    float normal_ys[] = {s, -c, -s, c};
+    float normalXs[] = {c, s, -c, -s};
+    float normalYs[] = {s, -c, -s, c};
     float distances[] = {0.5f * WIDTH, 0.5f * HEIGHT, 0.5f * WIDTH, 0.5f * HEIGHT};
 
     // return;
@@ -335,38 +328,38 @@ void sim_update(
     {
         for (int w = 0; w < 4; w++)
         {
-            float normal_x = normal_xs[w];
-            float normal_y = normal_ys[w];
+            float normalX = normalXs[w];
+            float normalY = normalYs[w];
 
             float distance = distances[w];
             float pdot =
-                normal_x * (pos_xs[i] + normal_x * distance) +
-                normal_y * (pos_ys[i] + normal_y * distance);
+                normalX * (posXs[i] + normalX * distance) +
+                normalY * (posYs[i] + normalY * distance);
 
             if (pdot < 0)
             {
-                float wall_vel_x = ((cd - 1) * pos_xs[i] - sd * pos_ys[i]) / H;
-                float wall_vel_y = (sd * pos_xs[i] + (cd - 1) * pos_ys[i]) / H;
+                float wallVelX = ((cd - 1) * posXs[i] - sd * posYs[i]) / H;
+                float wallVelY = (sd * posXs[i] + (cd - 1) * posYs[i]) / H;
 
-                float rel_vel_x = vel_xs[i] - wall_vel_x;
-                float rel_vel_y = vel_ys[i] - wall_vel_y;
+                float relVelX = velXs[i] - wallVelX;
+                float relVelY = velYs[i] - wallVelY;
 
-                float vdot = normal_x * rel_vel_x + normal_y * rel_vel_y;
+                float vdot = normalX * relVelX + normalY * relVelY;
 
-                float reflected_vel_x =
-                    rel_vel_x - (1 + WALL_RESTITUTION) * vdot * normal_x + wall_vel_x;
-                float reflected_vel_y =
-                    rel_vel_y - (1 + WALL_RESTITUTION) * vdot * normal_y + wall_vel_y;
+                float reflectedVelX =
+                    relVelX - (1 + WALL_RESTITUTION) * vdot * normalX + wallVelX;
+                float reflectedVelY =
+                    relVelY - (1 + WALL_RESTITUTION) * vdot * normalY + wallVelY;
 
-                float dt_frac = pdot / vdot;
-                pos_xs[i] -= vel_xs[i] * dt_frac;
-                pos_ys[i] -= vel_ys[i] * dt_frac;
+                float dtFrac = pdot / vdot;
+                posXs[i] -= velXs[i] * dtFrac;
+                posYs[i] -= velYs[i] * dtFrac;
 
-                pos_xs[i] += reflected_vel_x * dt_frac;
-                pos_ys[i] += reflected_vel_y * dt_frac;
+                posXs[i] += reflectedVelX * dtFrac;
+                posYs[i] += reflectedVelY * dtFrac;
 
-                vel_xs[i] = reflected_vel_x;
-                vel_ys[i] = reflected_vel_y;
+                velXs[i] = reflectedVelX;
+                velYs[i] = reflectedVelY;
             }
         }
     }
@@ -377,8 +370,8 @@ void sim_update(
 
 int main()
 {
-    float pos_xs[NUM_PARTICLES] = {0};
-    float pos_ys[NUM_PARTICLES] = {0};
+    float posXs[NUM_PARTICLES] = {0};
+    float posYs[NUM_PARTICLES] = {0};
 
     float counter = 0;
 
@@ -387,46 +380,47 @@ int main()
         float x = fmod(counter, 1.f);
         float y = (counter - x) * 0.03f;
 
-        pos_xs[i] = (x - 0.5f) * WIDTH;
-        pos_ys[i] = (y - 0.5f) * HEIGHT;
+        posXs[i] = (x - 0.5f) * WIDTH;
+        posYs[i] = (y - 0.5f) * HEIGHT;
         counter += 0.03;
     }
 
-    float pred_pos_xs[NUM_PARTICLES] = {0};
-    float pred_pos_ys[NUM_PARTICLES] = {0};
+    float predPosXs[NUM_PARTICLES] = {0};
+    float predPosYs[NUM_PARTICLES] = {0};
 
-    float vel_xs[NUM_PARTICLES] = {0};
-    float vel_ys[NUM_PARTICLES] = {0};
+    float velXs[NUM_PARTICLES] = {0};
+    float velYs[NUM_PARTICLES] = {0};
 
     float densities[NUM_PARTICLES] = {0};
-    SpatialGridCell spatial_grid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
+    SpatialGridCell spatialGrid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
 
     const int DISPLAY_WIDTH = 32;
     const int DISPLAY_HEIGHT = 16;
 
+
     while (true)
     {
-        sim_update(
-            pos_xs,
-            pos_ys,
-            pred_pos_xs,
-            pred_pos_ys,
-            vel_xs,
-            vel_ys,
+        updateSim(
+            posXs,
+            posYs,
+            predPosXs,
+            predPosYs,
+            velXs,
+            velYs,
             densities,
-            spatial_grid
+            spatialGrid
         );
 
         bool buf[DISPLAY_WIDTH + 1][DISPLAY_HEIGHT + 1] = {false};
 
-        float c = cos(-current_rotation);
-        float s = sin(-current_rotation);
+        float c = cos(-currentRotation);
+        float s = sin(-currentRotation);
 
         for (int i = 0; i < NUM_PARTICLES; i++)
         {
-            float x = c * pos_xs[i] - s * pos_ys[i];
-            float y = s * pos_xs[i] + c * pos_ys[i];
+            float x = c * posXs[i] - s * posYs[i];
+            float y = s * posXs[i] + c * posYs[i];
 
             int xi = (int)((0.5f + x / WIDTH) * DISPLAY_WIDTH);
             int yi = (int)((0.5f + y / HEIGHT) * DISPLAY_HEIGHT);
