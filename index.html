@@ -38,7 +38,7 @@
     const substeps = 4;
     const h = dt / substeps;
 
-    const numParticles = 1024 * 2;
+    const numParticles = 1;
 
     const wallRestitution = 0.85;
     const kernelRadius = 0.05;
@@ -265,6 +265,8 @@
                     const relVely = velocities[i][1] - wallVely;
 
                     const vdot = normal[0] * relVelx + normal[1] * relVely;
+
+                    // console.log(vdot)
 
                     const reflectedVelx =
                         relVelx - (1 + wallRestitution) * vdot * normal[0] + wallVelx;
