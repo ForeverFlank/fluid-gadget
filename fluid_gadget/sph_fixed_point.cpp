@@ -7,24 +7,24 @@
 using namespace std;
 
 
-#define WIDTH               128
-#define HEIGHT              64
+#define WIDTH               64
+#define HEIGHT              32
 
 #define DISPLAY_WIDTH       32
 #define DISPLAY_HEIGHT      16
 
-#define DT                  0.05
-#define SUBSTEPS            4
+#define DT                  0.1
+#define SUBSTEPS            8
 #define H                   DT / SUBSTEPS
 
-#define NUM_PARTICLES       512
+#define NUM_PARTICLES       256
 #define PARTICLES_PER_CELL  16
 
-#define KERNEL_RADIUS       4
-#define WALL_RESTITUTION    0.85
-#define PRESSURE_MULT       20
-#define VISCOSITY_MULT      0.2
+#define KERNEL_RADIUS       1.8
+#define PRESSURE_MULT       50
+#define VISCOSITY_MULT      0.01
 #define DAMPING             0.01
+#define WALL_RESTITUTION    0.85
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_SIZE   (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
@@ -400,15 +400,16 @@ int main()
     // although this only run once so it's not much of a concern
 
     float counter = 0;
+    const float step = 0.021f;
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        float x = fmod(counter, 1.f);
-        float y = (counter - x) * 0.03f + 0.4f;
+        float x = fmod(counter, 0.51f);
+        float y = (counter - x) * step * 5.f;
 
         posXs[i] = fixed16((x - 0.5f) * WIDTH);
         posYs[i] = fixed16((y - 0.5f) * HEIGHT);
-        counter += 0.03;
+        counter += step;
     }
 
     fixed16 predPosXs[NUM_PARTICLES] = { fixed16(0.f) };
@@ -420,19 +421,52 @@ int main()
     fixed16 densities[NUM_PARTICLES] = { fixed16(0.f) };
     SpatialGridCell spatialGrid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
+    int j = 0;
+    int k = 0;
 
     while (true)
     {
-        updateSim(
-            posXs,
-            posYs,
-            predPosXs,
-            predPosYs,
-            velXs,
-            velYs,
-            densities,
-            spatialGrid
-        );
+        j++;
+
+        if (j % 500 == 499)
+        {
+            k = (k + 1) % 4;
+
+            if (k == 0)
+            {
+                gravityX = fixed16(0.f);
+                gravityY = fixed16(-5.f);
+            }
+            else if (k == 1)
+            {
+                gravityX = fixed16(5.f);
+                gravityY = fixed16(0.f);
+            }
+            else if (k == 2)
+            {
+                gravityX = fixed16(0.f);
+                gravityY = fixed16(5.f);
+            }
+            else if (k == 3)
+            {
+                gravityX = fixed16(-5.f);
+                gravityY = fixed16(0.f);
+            }
+        }
+
+        for (int i = 0; i < SUBSTEPS; i++)
+        {
+            updateSim(
+                posXs,
+                posYs,
+                predPosXs,
+                predPosYs,
+                velXs,
+                velYs,
+                densities,
+                spatialGrid
+            );
+        }
 
         bool buf[DISPLAY_WIDTH][DISPLAY_HEIGHT] = { false };
 

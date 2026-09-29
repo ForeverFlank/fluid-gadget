@@ -8,7 +8,7 @@
 </head>
 
 <body style="text-align: center;">
-    <canvas id="canvas" width="400" height="200"
+    <canvas id="canvas" width="512" height="256"
         style="margin-top: 8em; margin-bottom: 8em; border: 1px solid black;"></canvas>
     <div></div>
     <input id="slider" type="range" min="0" max="6.283185" step="0.001" style="width: 30em;">
@@ -25,7 +25,7 @@
     const canvasWidth = canvas.width;
     const canvasHeight = canvas.height;
 
-    const scale = 0.01;
+    const scale = 16 / 512;
     const width = canvasWidth * scale;
     const height = canvasHeight * scale;
 
@@ -34,22 +34,22 @@
     const yMin = -0.5 * height;
     const yMax = 0.5 * height;
 
-    const dt = 0.008;
-    const substeps = 4;
+    const dt = 0.1;
+    const substeps = 8;
     const h = dt / substeps;
 
-    const numParticles = 1;
+    const numParticles = 512;
 
-    const wallRestitution = 0.85;
-    const kernelRadius = 0.05;
-    const pressureMultiplier = 20;
-    const viscosityMultiplier = 0;
-    const damping = 0.0;
+    const kernelRadius = 0.5;
+    const pressureMultiplier = 4;
+    const viscosityMultiplier = 0.2;
+    const damping = 0.05;
+    const wallRestitution = 0.5;
 
-    let gravity = [0, -10];
+    let gravity = [0, -1];
     let currentRotation = 0;
     let lastRotation = currentRotation;
-    const rotationDamp = 0.3;
+    const rotationDamp = 0.01;
 
     const positions = Array.from(
         { length: numParticles },
@@ -204,7 +204,7 @@
     const simUpdate = () => {
         const sliderRotation = slider.value - Math.PI;
         currentRotation = lastRotation + (sliderRotation - lastRotation) * rotationDamp;
-        currentRotation = lastRotation + 0.8 * h;
+        // currentRotation = lastRotation + 0.1 * h;
         // currentRotation = -0.9
 
         const dRotation = currentRotation - lastRotation;
