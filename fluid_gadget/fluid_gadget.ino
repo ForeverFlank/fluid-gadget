@@ -2,15 +2,18 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_MPU6050.h>
 #include "../fixed16.cpp"
 
-
-#define i2c_Address 0x3c
 
 #define SCREEN_WIDTH        128
 #define SCREEN_HEIGHT       64
 #define OLED_RESET          -1
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+Adafruit_MPU6050 mpu;
+
 
 #define PIXEL_SIZE          4
 
@@ -21,28 +24,30 @@ Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, 
 #define DISPLAY_HEIGHT      SCREEN_HEIGHT / PIXEL_SIZE
 
 #define DT                  0.1
-#define SUBSTEPS            8
+#define SUBSTEPS            4
 #define H                   DT / SUBSTEPS
 
-#define NUM_PARTICLES       128
-#define PARTICLES_PER_CELL  8
+#define NUM_PARTICLES       64
+#define PARTICLES_PER_CELL  4
 
 #define KERNEL_RADIUS       1.25
 #define PRESSURE_MULT       20
 #define VISCOSITY_MULT      0.01
 #define DAMPING             0.01
-#define WALL_RESTITUTION    0.85
+#define WALL_RESTITUTION    0.6
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_DIM    (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
 
 
+const fixed16 dt = fixed16(static_cast<float>(DT));
 const fixed16 h  = fixed16(static_cast<float>(H));
 
 const fixed16 kernelRadius  = fixed16(static_cast<float>(KERNEL_RADIUS));
 const fixed16 pressuerMult  = fixed16(static_cast<float>(PRESSURE_MULT));
 const fixed16 viscosityMult = fixed16(static_cast<float>(VISCOSITY_MULT));
 const fixed16 damping       = fixed16(static_cast<float>(DAMPING));
+fixed16 reflectFactor = fixed16(static_cast<float>(1.f + WALL_RESTITUTION));
 
 
 fixed16 gravityX = fixed16(0.f);
@@ -364,33 +369,30 @@ void updateSim(
                 normalX * (posXs[i] + normalX * distance) +
                 normalY * (posYs[i] + normalY * distance);
 
-            if (pdot < fixed16(0.f))
-            {
-                fixed16 wallVelX =
-                    ((cd - fixed16(1.f)) * posXs[i] - sd * posYs[i]) / h;
-                fixed16 wallVelY =
-                    (sd * posXs[i] + (cd - fixed16(1.f)) * posYs[i]) / h;
+            if (pdot >= fixed16(0.f)) continue;
 
-                fixed16 relVelX = velXs[i] - wallVelX;
-                fixed16 relVelY = velYs[i] - wallVelY;
+            fixed16 wallVelX =
+                ((cd - fixed16(1.f)) * posXs[i] - sd * posYs[i]) / h;
+            fixed16 wallVelY =
+                (sd * posXs[i] + (cd - fixed16(1.f)) * posYs[i]) / h;
 
-                fixed16 vdot = normalX * relVelX + normalY * relVelY;
+            fixed16 relVelX = velXs[i] - wallVelX;
+            fixed16 relVelY = velYs[i] - wallVelY;
 
-                if (vdot == fixed16(0.f)) continue;
+            fixed16 vdot = normalX * relVelX + normalY * relVelY;
 
-                fixed16 reflectFactor = fixed16(static_cast<float>(1. + WALL_RESTITUTION));
+            if (vdot == fixed16(0.f)) continue;
 
-                fixed16 reflectedVelX = relVelX - reflectFactor * vdot * normalX + wallVelX;
-                fixed16 reflectedVelY = relVelY - reflectFactor * vdot * normalY + wallVelY;
+            fixed16 reflectedVelX = relVelX - reflectFactor * vdot * normalX + wallVelX;
+            fixed16 reflectedVelY = relVelY - reflectFactor * vdot * normalY + wallVelY;
 
-                fixed16 dtFrac = pdot / vdot;
+            fixed16 dtFrac = pdot / vdot;
 
-                posXs[i] += (reflectedVelX - velXs[i]) * dtFrac;
-                posYs[i] += (reflectedVelY - velYs[i]) * dtFrac;
+            posXs[i] += (reflectedVelX - velXs[i]) * dtFrac;
+            posYs[i] += (reflectedVelY - velYs[i]) * dtFrac;
 
-                velXs[i] = reflectedVelX;
-                velYs[i] = reflectedVelY;
-            }
+            velXs[i] = reflectedVelX;
+            velYs[i] = reflectedVelY;
         }
     }
 };
@@ -419,7 +421,17 @@ void setup()
     Serial.begin(9600);
 
     delay(250);
-    display.begin(i2c_Address, true);
+    display.begin(0x3c, true);
+
+    while (!mpu.begin())
+    {
+        Serial.println("Failed to find MPU6050 chip");
+        delay(1000);
+    }
+
+    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
     float counter = 0;
     const float step = 0.021f;
@@ -433,11 +445,87 @@ void setup()
         posYs[i] = fixed16((y - 0.5f) * HEIGHT);
         counter += step;
     }
+
+    display.clearDisplay();
+    display.display();
 }
+
+int oldXs[NUM_PARTICLES];
+int oldYs[NUM_PARTICLES];
+
+void mpuRead(int16_t *accel)
+{
+    uint8_t data[6] = { 0, 0, 0, 0, 0, 0 };
+    Wire.beginTransmission(0x68);
+    Wire.write(0x3b);
+    Wire.endTransmission(false);
+    Wire.requestFrom(0x68, 6, true);
+    for (uint8_t i = 0; i < 6; ++i)
+    {
+        data[i] = Wire.read();
+    }
+    accel[0] = (int16_t)(data[0] << 8 | data[1]);
+    accel[1] = (int16_t)(data[2] << 8 | data[3]);
+    accel[2] = (int16_t)(data[4] << 8 | data[5]);
+
+    // Wire.beginTransmission(0x68);
+    // Wire.write(0x43);
+    // Wire.endTransmission(false);
+    // Wire.requestFrom(0x68, 6, true);
+    // for (uint8_t i = 0; i < 6; ++i) {
+    //     data[i] = Wire.read();
+    // }
+    // mpuArr[3] = (int16_t)(data[0] << 8 | data[1]);
+    // mpuArr[4] = (int16_t)(data[2] << 8 | data[3]);
+    // mpuArr[5] = (int16_t)(data[4] << 8 | data[5]);
+    // return true;
+}
+
+bool firstFrame = true;
+fixed16 sensorScale = fixed16(0.1f);
+
+fixed16 prevAccelX;
+fixed16 prevAccelY;
+fixed16 prevAccelZ;
 
 void loop()
 {
     long startMillis = millis();
+
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    // HACK
+    fixed16 accelX = sensorScale * fixed16(-a.acceleration.y);
+    fixed16 accelY = sensorScale * fixed16(a.acceleration.x);
+    fixed16 accelZ = sensorScale * fixed16(a.acceleration.z);
+
+    gravityX = accelX;
+    gravityY = accelY;
+
+    if (!firstFrame)
+    {
+        fixed16 impulseX = (accelX - prevAccelX) / dt;
+        fixed16 impulseY = (accelY - prevAccelY) / dt;
+
+        for (int i = 0; i < NUM_PARTICLES; i++)
+        {
+            velXs[i] += impulseX;
+            velYs[i] += impulseY;
+        }
+    }
+
+    prevAccelX = accelX;
+    prevAccelY = accelY;
+    prevAccelZ = accelZ;
+
+    // Serial.print("Acceleration X: ");
+    // Serial.print(a.acceleration.x);
+    // Serial.print(", Y: ");
+    // Serial.print(a.acceleration.y);
+    // Serial.print(", Z: ");
+    // Serial.print(a.acceleration.z);
+    // Serial.println(" m/s^2");
 
     for (int i = 0; i < SUBSTEPS; i++)
     {
@@ -463,7 +551,14 @@ void loop()
     //     bitmap[i] = 0;
     // }
 
-    display.clearDisplay();
+
+    if (!firstFrame)
+    {
+        for (int i = 0; i < NUM_PARTICLES; i++)
+        {
+            display.fillRect(oldXs[i] * PIXEL_SIZE, oldYs[i] * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, 0);
+        }
+    }
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
@@ -486,6 +581,9 @@ void loop()
 
         // bitmap[bitmapIndex] |= 1 << (xi % 8);
         display.fillRect(xi * PIXEL_SIZE, yi * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, 1);
+
+        oldXs[i] = xi;
+        oldYs[i] = yi;
     }
 
     display.display();
@@ -503,6 +601,8 @@ void loop()
     Serial.print("update ms = ");
     Serial.print(updateSimMillis - startMillis);
 
-    Serial.print("  display ms = ");
+    Serial.print("    display ms = ");
     Serial.println(displayMillis - updateSimMillis);
+
+    firstFrame = false;
 }

@@ -21,7 +21,7 @@ using namespace std;
 #define PARTICLES_PER_CELL  16
 
 #define KERNEL_RADIUS       1.25
-#define PRESSURE_MULT       20
+#define PRESSURE_MULT       4
 #define VISCOSITY_MULT      0.01
 #define DAMPING             0.01
 #define WALL_RESTITUTION    0.85

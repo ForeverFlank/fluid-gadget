@@ -8,7 +8,7 @@
 </head>
 
 <body style="text-align: center;">
-    <canvas id="canvas" width="512" height="256"
+    <canvas id="canvas" width="500" height="250"
         style="margin-top: 8em; margin-bottom: 8em; border: 1px solid black;"></canvas>
     <div></div>
     <input id="slider" type="range" min="0" max="6.283185" step="0.001" style="width: 30em;">
@@ -25,7 +25,7 @@
     const canvasWidth = canvas.width;
     const canvasHeight = canvas.height;
 
-    const scale = 16 / 512;
+    const scale = 50 / canvasWidth;
     const width = canvasWidth * scale;
     const height = canvasHeight * scale;
 
@@ -38,9 +38,9 @@
     const substeps = 8;
     const h = dt / substeps;
 
-    const numParticles = 512;
+    const numParticles = 256;
 
-    const kernelRadius = 0.5;
+    const kernelRadius = 1.5;
     const pressureMultiplier = 4;
     const viscosityMultiplier = 0.2;
     const damping = 0.05;
