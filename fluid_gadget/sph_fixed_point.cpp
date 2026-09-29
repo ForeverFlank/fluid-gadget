@@ -30,9 +30,17 @@ using namespace std;
 #define SPATIAL_GRID_SIZE   (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
 
 
-fixed16 gravityX = fixed16::fromFloat(0);
-fixed16 gravityY = fixed16::fromFloat(-10);
-fixed16 currentRotation = fixed16::fromFloat(0);
+
+const fixed16 h  = fixed16(static_cast<float>(H));
+
+const fixed16 kernelRadius  = fixed16(static_cast<float>(KERNEL_RADIUS));
+const fixed16 pressuerMult  = fixed16(static_cast<float>(PRESSURE_MULT));
+const fixed16 viscosityMult = fixed16(static_cast<float>(VISCOSITY_MULT));
+
+
+fixed16 gravityX = fixed16(0.f);
+fixed16 gravityY = fixed16(-10.f);
+fixed16 currentRotation = fixed16(0.f);
 fixed16 lastRotation = currentRotation;
 
 
@@ -45,22 +53,22 @@ struct SpatialGridCell
 
 fixed16 smoothingKernel(fixed16 distance)
 {
-    fixed16 normalized = distance / fixed16::fromFloat(KERNEL_RADIUS);
-    fixed16 value = fixed16::max(
-        fixed16::fromFloat(1.f) - normalized * normalized, fixed16::fromFloat(0.f)
+    fixed16 normalized = distance / kernelRadius;
+    fixed16 value = max(
+        fixed16(1.f) - normalized * normalized,
+        fixed16(0.f)
     );
     return value * value * value;
 }
 
 fixed16 d_smoothingKernel(fixed16 distance)
 {
-    fixed16 normalized = distance / fixed16::fromFloat(KERNEL_RADIUS);
-    fixed16 value = fixed16::max(
-        fixed16::fromFloat(1.f) - normalized * normalized,
-        fixed16::fromFloat(0.f));
-    return
-        fixed16::fromFloat(-6.f) * value * value * normalized
-        / fixed16::fromFloat(KERNEL_RADIUS);
+    fixed16 normalized = distance / kernelRadius;
+    fixed16 value = max(
+        fixed16(1.f) - normalized * normalized,
+        fixed16(0.f)
+    );
+    return fixed16(-6.f) * value * value * normalized / kernelRadius;
 }
 
 
@@ -71,16 +79,10 @@ void spatialGridCoord(
     int16_t *out_xi,
     int16_t *out_yi)
 {
-    int16_t xi =
-        fixed16::floor(
-            (predPosXs[index] + fixed16::fromFloat(CONTAINER_HYP * 0.5))
-            / fixed16::fromFloat(KERNEL_RADIUS)
-        ).toInt16();
-    int16_t yi =
-        fixed16::floor(
-            (predPosYs[index] + fixed16::fromFloat(CONTAINER_HYP * 0.5))
-            / fixed16::fromFloat(KERNEL_RADIUS)
-        ).toInt16();
+    fixed16 offset = fixed16(static_cast<float>(CONTAINER_HYP * 0.5f));
+
+    int16_t xi = floor((predPosXs[index] + offset) / kernelRadius).to_int();
+    int16_t yi = floor((predPosYs[index] + offset) / kernelRadius).to_int();
 
     if (xi < 0) xi = 0;
     if (xi >= SPATIAL_GRID_SIZE) xi = SPATIAL_GRID_SIZE - 1;
@@ -172,7 +174,7 @@ fixed16 calculateDensity(
     SpatialGridCell *spatialGrid,
     int index)
 {
-    fixed16 res = fixed16::fromFloat(0);
+    fixed16 res = fixed16(0.f);
 
     int indices[9 * PARTICLES_PER_CELL];
     int indicesSize = 0;
@@ -193,9 +195,9 @@ fixed16 calculateDensity(
 
         fixed16 dx = predPosXs[i] - predPosXs[index];
         fixed16 dy = predPosYs[i] - predPosYs[index];
-        fixed16 dist = fixed16::sqrt(dx * dx + dy * dy);
+        fixed16 dist = sqrt(dx * dx + dy * dy);
 
-        if (dist > fixed16::fromFloat(KERNEL_RADIUS)) continue;
+        if (dist > kernelRadius) continue;
 
         res += smoothingKernel(dist);
     }
@@ -237,23 +239,23 @@ void calculateForce(
 
         fixed16 dx = predPosXs[i] - predPosXs[index];
         fixed16 dy = predPosYs[i] - predPosYs[index];
-        fixed16 dist = fixed16::sqrt(dx * dx + dy * dy);
+        fixed16 dist = sqrt(dx * dx + dy * dy);
 
-        if (dist > fixed16::fromFloat(KERNEL_RADIUS)) continue;
+        if (dist > kernelRadius) continue;
 
-        fixed16 dirx = dist > fixed16::fromFloat(0)
+        fixed16 dirx = dist > fixed16(0.f)
             ? dx / dist
-            : fixed16::fromFloat(0);
-        fixed16 diry = dist > fixed16::fromFloat(0)
+            : fixed16(0.f);
+        fixed16 diry = dist > fixed16(0.f)
             ? dy / dist
-            : fixed16::fromFloat(0);
+            : fixed16(0.f);
 
         fixed16 density = densities[i];
         fixed16 pressureSlope = d_smoothingKernel(dist);
         fixed16 pressure = density * pressureSlope;
 
-        forceX += pressure * dirx * fixed16::fromFloat(PRESSURE_MULT);
-        forceY+= pressure * diry * fixed16::fromFloat(PRESSURE_MULT);
+        forceX += pressure * dirx * pressuerMult;
+        forceY+= pressure * diry * pressuerMult;
 
         // viscosity
         fixed16 dvx = velXs[i] - velXs[index];
@@ -261,8 +263,8 @@ void calculateForce(
 
         fixed16 viscosityInfluence = smoothingKernel(dist);
 
-        forceX += dvx * viscosityInfluence * fixed16::fromFloat(VISCOSITY_MULT);
-        forceY+= dvy * viscosityInfluence * fixed16::fromFloat(VISCOSITY_MULT);
+        forceX += dvx * viscosityInfluence * viscosityMult;
+        forceY+= dvy * viscosityInfluence * viscosityMult;
     }
 
     *out_forceX = forceX;
@@ -284,8 +286,8 @@ void updateSim(
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        predPosXs[i] = posXs[i] + velXs[i] * fixed16::fromFloat(H);
-        predPosYs[i] = posYs[i] + velYs[i] * fixed16::fromFloat(H);
+        predPosXs[i] = posXs[i] + velXs[i] * h;
+        predPosYs[i] = posYs[i] + velYs[i] * h;
     }
 
 
@@ -319,31 +321,31 @@ void updateSim(
             &force_y
         );
 
-        velXs[i] += force_x * fixed16::fromFloat(H);
-        velYs[i] += force_y * fixed16::fromFloat(H);
+        velXs[i] += force_x * h;
+        velYs[i] += force_y * h;
 
-        velXs[i] *= fixed16::fromFloat(1 - DAMPING * (H));
-        velYs[i] *= fixed16::fromFloat(1 - DAMPING * (H));
+        velXs[i] *= fixed16(static_cast<float>(1. - DAMPING * H));
+        velYs[i] *= fixed16(static_cast<float>(1. - DAMPING * H));
 
-        posXs[i] += velXs[i] * fixed16::fromFloat(H);
-        posYs[i] += velYs[i] * fixed16::fromFloat(H);
+        posXs[i] += velXs[i] * h;
+        posYs[i] += velYs[i] * h;
     }
 
     // HACK
 
-    fixed16 c = fixed16::fromFloat(cos(currentRotation.toFloat()));
-    fixed16 s = fixed16::fromFloat(sin(currentRotation.toFloat()));
+    fixed16 c = fixed16(cos(currentRotation.to_float()));
+    fixed16 s = fixed16(sin(currentRotation.to_float()));
 
-    fixed16 cd = fixed16::fromFloat(cos(dRotation.toFloat()));
-    fixed16 sd = fixed16::fromFloat(sin(dRotation.toFloat()));
+    fixed16 cd = fixed16(cos(dRotation.to_float()));
+    fixed16 sd = fixed16(sin(dRotation.to_float()));
 
-    fixed16 normalXs[] = {c, s, -c, -s};
-    fixed16 normalYs[] = {s, -c, -s, c};
+    fixed16 normalXs[] = { c, s, -c, -s };
+    fixed16 normalYs[] = { s, -c, -s, c };
     fixed16 distances[] = {
-        fixed16::fromFloat(0.5f * WIDTH),
-        fixed16::fromFloat(0.5f * HEIGHT),
-        fixed16::fromFloat(0.5f * WIDTH),
-        fixed16::fromFloat(0.5f * HEIGHT)
+        fixed16(0.5f * WIDTH),
+        fixed16(0.5f * HEIGHT),
+        fixed16(0.5f * WIDTH),
+        fixed16(0.5f * HEIGHT)
     };
 
     // return;
@@ -360,12 +362,12 @@ void updateSim(
                 normalX * (posXs[i] + normalX * distance) +
                 normalY * (posYs[i] + normalY * distance);
 
-            if (pdot < fixed16::fromFloat(0))
+            if (pdot < fixed16(0.f))
             {
                 fixed16 wallVelX =
-                    ((cd - fixed16::fromFloat(1)) * posXs[i] - sd * posYs[i]) / fixed16::fromFloat(H);
+                    ((cd - fixed16(1.f)) * posXs[i] - sd * posYs[i]) / h;
                 fixed16 wallVelY =
-                    (sd * posXs[i] + (cd - fixed16::fromFloat(1)) * posYs[i]) / fixed16::fromFloat(H);
+                    (sd * posXs[i] + (cd - fixed16(1.f)) * posYs[i]) / h;
 
                 fixed16 relVelX = velXs[i] - wallVelX;
                 fixed16 relVelY = velYs[i] - wallVelY;
@@ -373,9 +375,9 @@ void updateSim(
                 fixed16 vdot = normalX * relVelX + normalY * relVelY;
 
                 fixed16 reflectedVelX =
-                    relVelX - fixed16::fromFloat(1 + WALL_RESTITUTION) * vdot * normalX + wallVelX;
+                    relVelX - fixed16(static_cast<float>(1. + WALL_RESTITUTION)) * vdot * normalX + wallVelX;
                 fixed16 reflectedVelY =
-                    relVelY - fixed16::fromFloat(1 + WALL_RESTITUTION) * vdot * normalY + wallVelY;
+                    relVelY - fixed16(static_cast<float>(1. + WALL_RESTITUTION)) * vdot * normalY + wallVelY;
 
                 fixed16 dtFrac = pdot / vdot;
                 posXs[i] -= velXs[i] * dtFrac;
@@ -396,8 +398,8 @@ void updateSim(
 
 int main()
 {
-    fixed16 posXs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
-    fixed16 posYs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
+    fixed16 posXs[NUM_PARTICLES] = { fixed16(0.f) };
+    fixed16 posYs[NUM_PARTICLES] = { fixed16(0.f) };
 
     // HACK
     // although this only run once so it's not much of a concern
@@ -409,18 +411,18 @@ int main()
         float x = fmod(counter, 1.f);
         float y = (counter - x) * 0.03f;
 
-        posXs[i] = fixed16::fromFloat((x - 0.5f) * WIDTH);
-        posYs[i] = fixed16::fromFloat((y - 0.5f) * HEIGHT);
+        posXs[i] = fixed16((x - 0.5f) * WIDTH);
+        posYs[i] = fixed16((y - 0.5f) * HEIGHT);
         counter += 0.03;
     }
 
-    fixed16 predPosXs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
-    fixed16 predPosYs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
+    fixed16 predPosXs[NUM_PARTICLES] = { fixed16(0.f) };
+    fixed16 predPosYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-    fixed16 velXs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
-    fixed16 velYs[NUM_PARTICLES] = {fixed16::fromFloat(0)};
+    fixed16 velXs[NUM_PARTICLES] = { fixed16(0.f) };
+    fixed16 velYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-    fixed16 densities[NUM_PARTICLES] = {fixed16::fromFloat(0)};
+    fixed16 densities[NUM_PARTICLES] = { fixed16(0.f) };
     SpatialGridCell spatialGrid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
 
@@ -437,10 +439,10 @@ int main()
             spatialGrid
         );
 
-        bool buf[DISPLAY_WIDTH][DISPLAY_HEIGHT] = {false};
+        bool buf[DISPLAY_WIDTH][DISPLAY_HEIGHT] = { false };
 
-        fixed16 c = fixed16::fromFloat(cos(-currentRotation.toFloat()));
-        fixed16 s = fixed16::fromFloat(sin(-currentRotation.toFloat()));
+        fixed16 c = fixed16(cos(-currentRotation.to_float()));
+        fixed16 s = fixed16(sin(-currentRotation.to_float()));
 
         for (int i = 0; i < NUM_PARTICLES; i++)
         {
@@ -448,11 +450,11 @@ int main()
             fixed16 y = s * posXs[i] + c * posYs[i];
 
             int xi = (
-                (fixed16::fromFloat(0.5f) + x / fixed16::fromFloat(WIDTH))
-                * fixed16::fromFloat(DISPLAY_WIDTH)).toInt16();
+                (fixed16(0.5f) + x / fixed16(static_cast<float>(WIDTH)))
+                * fixed16(static_cast<float>(DISPLAY_WIDTH))).to_int();
             int yi = (
-                (fixed16::fromFloat(0.5f) + y / fixed16::fromFloat(HEIGHT))
-                * fixed16::fromFloat(DISPLAY_HEIGHT)).toInt16();
+                (fixed16(0.5f) + y / fixed16(static_cast<float>(HEIGHT)))
+                * fixed16(static_cast<float>(DISPLAY_HEIGHT))).to_int();
 
             xi = min(xi, DISPLAY_WIDTH - 1);
             yi = min(yi, DISPLAY_HEIGHT - 1);

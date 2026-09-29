@@ -29,120 +29,105 @@ struct fixed16
         this->value = 0;
     }
 
-
-    static fixed16 fromFloat(float value)
+    fixed16(float value)
     {
-        return fixed16((int16_t)(value * 256.f));
+        this->value = (int16_t)(value * 256.f);
     }
-
-    float toFloat()
-    {
-        return value / 256.f;
-    }
-
-    int16_t toInt16()
-    {
-        return value >> 8;
-    }
-
-
-    static fixed16 sqrt(fixed16 value)
-    {
-        if (value.value < 0) return 0;
-
-        int8_t upper = value.value >> 8;
-        int8_t lower = value.value & 0xFF;
-
-        fixed16 l = fixed16(SQRT_LOOKUP[upper]);
-        fixed16 h = fixed16(SQRT_LOOKUP[upper + 1]);
-
-        fixed16 c = fixed16(lower) / fixed16(256);
-
-        return l * (fixed16(256) - c) + h * c;
-    }
-
-
-    static fixed16 floor(fixed16 value)
-    {
-        return fixed16(value.value & 0xFF00);
-    }
-
-
-    static fixed16 min(fixed16 lhs, fixed16 rhs)
-    {
-        return lhs < rhs ? lhs : rhs;
-    }
-
-    static fixed16 max(fixed16 lhs, fixed16 rhs)
-    {
-        return lhs > rhs ? lhs : rhs;
-    }
-
-
-    fixed16 operator+(fixed16 rhs)
-    {
-        return fixed16(value + rhs.value);
-    }
-
-    fixed16 operator-()
-    {
-        return fixed16(-value);
-    }
-
-    fixed16 operator-(fixed16 rhs)
-    {
-        return fixed16(value - rhs.value);
-    }
-
-    fixed16 operator*(fixed16 rhs)
-    {
-        int32_t res = value * rhs.value;
-        return fixed16(res >> 8);
-    }
-
-    fixed16 operator/(fixed16 rhs)
-    {
-        int32_t lhs32 = value << 8;
-        return fixed16(lhs32 / rhs.value);
-    }
-
-
-    void operator+=(fixed16 rhs)
-    {
-        (*this) = (*this) + rhs;
-    }
-
-    void operator-=(fixed16 rhs)
-    {
-        (*this) = (*this) - rhs;
-    }
-
-    void operator*=(fixed16 rhs)
-    {
-        (*this) = (*this) * rhs;
-    }
-
-    void operator/=(fixed16 rhs)
-    {
-        (*this) = (*this) / rhs;
-    }
-
-
-    bool operator<(fixed16 rhs)
-    {
-        return value < rhs.value;
-    }
-
-    bool operator>(fixed16 rhs)
-    {
-        return value > rhs.value;
-    }
-
-
-private:
 
     fixed16(int16_t value)
     {
         this->value = value;
     }
+
+
+    float to_float()
+    {
+        return value / 256.f;
+    }
+
+    int to_int()
+    {
+        return value >> 8;
+    }
+
+
+    fixed16 operator+()
+    {
+        return fixed16(static_cast<int16_t>(+value));
+    }
+
+    fixed16 operator-()
+    {
+        return fixed16(static_cast<int16_t>(-value));
+    }
+
+    fixed16 operator+(fixed16 rhs)
+    {
+        return fixed16(static_cast<int16_t>(value + rhs.value));
+    }
+
+    fixed16 operator-(fixed16 rhs)
+    {
+        return fixed16(static_cast<int16_t>(value - rhs.value));
+    }
+
+    fixed16 operator*(fixed16 rhs)
+    {
+        int32_t res = value * rhs.value;
+        return fixed16(static_cast<int16_t>(res >> 8));
+    }
+
+    fixed16 operator/(fixed16 rhs)
+    {
+        int32_t lhs32 = value << 8;
+        return fixed16(static_cast<int16_t>(lhs32 / rhs.value));
+    }
+
+
+    void operator+=(fixed16 rhs) { (*this) = (*this) + rhs; }
+
+    void operator-=(fixed16 rhs) { (*this) = (*this) - rhs; }
+
+    void operator*=(fixed16 rhs) { (*this) = (*this) * rhs; }
+
+    void operator/=(fixed16 rhs) { (*this) = (*this) / rhs; }
+
+
+    bool operator<(fixed16 rhs) { return value < rhs.value; }
+
+    bool operator>(fixed16 rhs) { return value > rhs.value; }
+
+
+    // operator float() const { return  this->value / 256.f; }
 };
+
+
+fixed16 sqrt(fixed16 value)
+{
+    if (value.value < 0) return fixed16(0.f);
+
+    int8_t upper = value.value >> 8;
+    int8_t lower = value.value & 0xFF;
+
+    fixed16 l = fixed16(static_cast<int16_t>(SQRT_LOOKUP[upper]));
+    fixed16 h = fixed16(static_cast<int16_t>(SQRT_LOOKUP[upper + 1]));
+
+    fixed16 c = fixed16(static_cast<int16_t>(lower)) / fixed16(1.f);
+
+    return l * (fixed16(1.f) - c) + h * c;
+}
+
+fixed16 floor(fixed16 value)
+{
+    return fixed16(static_cast<int16_t>(value.value & 0xFF00));
+}
+
+fixed16 min(fixed16 lhs, fixed16 rhs)
+{
+    return lhs < rhs ? lhs : rhs;
+}
+
+fixed16 max(fixed16 lhs, fixed16 rhs)
+{
+    return lhs > rhs ? lhs : rhs;
+}
