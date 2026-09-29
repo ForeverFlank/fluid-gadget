@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <Adafruit_SSD1306.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_MPU6050.h>
 #include "../fixed16.cpp"
@@ -11,6 +12,7 @@
 #define SCREEN_HEIGHT       64
 #define OLED_RESET          -1
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 Adafruit_MPU6050 mpu;
 
@@ -24,17 +26,17 @@ Adafruit_MPU6050 mpu;
 #define DISPLAY_HEIGHT      SCREEN_HEIGHT / PIXEL_SIZE
 
 #define DT                  0.1
-#define SUBSTEPS            4
+#define SUBSTEPS            2
 #define H                   DT / SUBSTEPS
 
-#define NUM_PARTICLES       64
-#define PARTICLES_PER_CELL  4
+#define NUM_PARTICLES       128
+#define PARTICLES_PER_CELL  8
 
 #define KERNEL_RADIUS       1.25
-#define PRESSURE_MULT       20
-#define VISCOSITY_MULT      0.01
+#define PRESSURE_MULT       15
+#define VISCOSITY_MULT      0.1
 #define DAMPING             0.01
-#define WALL_RESTITUTION    0.6
+#define WALL_RESTITUTION    0.3
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_DIM    (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
@@ -422,10 +424,15 @@ void setup()
 
     delay(250);
     display.begin(0x3c, true);
+    // while (!display.begin(SSD1306_SWITCHCAPVCC, 0x3c))
+    // {
+    //     Serial.println("Failed to initialize SSD1306");
+    //     delay(1000);
+    // }
 
     while (!mpu.begin())
     {
-        Serial.println("Failed to find MPU6050 chip");
+        Serial.println("Failed to initialize MPU6050");
         delay(1000);
     }
 
@@ -453,36 +460,20 @@ void setup()
 int oldXs[NUM_PARTICLES];
 int oldYs[NUM_PARTICLES];
 
-void mpuRead(int16_t *accel)
-{
-    uint8_t data[6] = { 0, 0, 0, 0, 0, 0 };
-    Wire.beginTransmission(0x68);
-    Wire.write(0x3b);
-    Wire.endTransmission(false);
-    Wire.requestFrom(0x68, 6, true);
-    for (uint8_t i = 0; i < 6; ++i)
-    {
-        data[i] = Wire.read();
-    }
-    accel[0] = (int16_t)(data[0] << 8 | data[1]);
-    accel[1] = (int16_t)(data[2] << 8 | data[3]);
-    accel[2] = (int16_t)(data[4] << 8 | data[5]);
-
-    // Wire.beginTransmission(0x68);
-    // Wire.write(0x43);
-    // Wire.endTransmission(false);
-    // Wire.requestFrom(0x68, 6, true);
-    // for (uint8_t i = 0; i < 6; ++i) {
-    //     data[i] = Wire.read();
-    // }
-    // mpuArr[3] = (int16_t)(data[0] << 8 | data[1]);
-    // mpuArr[4] = (int16_t)(data[2] << 8 | data[3]);
-    // mpuArr[5] = (int16_t)(data[4] << 8 | data[5]);
-    // return true;
-}
-
 bool firstFrame = true;
-fixed16 sensorScale = fixed16(0.1f);
+fixed16 sensorScale = fixed16(0.2f);
+
+fixed16 worldVelX;
+fixed16 worldVelY;
+fixed16 worldVelZ;
+
+fixed16 worldPosX;
+fixed16 worldPosY;
+fixed16 worldPosZ;
+
+fixed16 prevWorldPosX;
+fixed16 prevWorldPosY;
+fixed16 prevWorldPosZ;
 
 fixed16 prevAccelX;
 fixed16 prevAccelY;
@@ -503,17 +494,41 @@ void loop()
     gravityX = accelX;
     gravityY = accelY;
 
+    fixed16 dispX = fixed16(0.5f) * accelX * accelX * dt;
+    fixed16 dispY = fixed16(0.5f) * accelY * accelY * dt;
+
+    worldVelX += accelX * dt;
+    worldVelY += accelY * dt;
+    worldVelZ += accelZ * dt;
+    
+    worldPosX += worldVelX * dt;
+    worldPosY += worldVelY * dt;
+    worldPosZ += worldVelZ * dt;
+    
     if (!firstFrame)
     {
-        fixed16 impulseX = (accelX - prevAccelX) / dt;
-        fixed16 impulseY = (accelY - prevAccelY) / dt;
-
-        for (int i = 0; i < NUM_PARTICLES; i++)
-        {
-            velXs[i] += impulseX;
-            velYs[i] += impulseY;
-        }
+        // for (int i = 0; i < NUM_PARTICLES; i++)
+        // {
+        //     posXs[i] -= (prevWorldPosX - worldPosX);
+        //     posYs[i] -= (prevWorldPosY - worldPosY);
+        // }
     }
+
+    prevWorldPosX = worldPosX;
+    prevWorldPosY = worldPosY;
+    prevWorldPosZ = worldPosZ;
+
+    // if (!firstFrame)
+    // {
+    //     fixed16 impulseX = (accelX - prevAccelX) / dt;
+    //     fixed16 impulseY = (accelY - prevAccelY) / dt;
+
+    //     for (int i = 0; i < NUM_PARTICLES; i++)
+    //     {
+    //         velXs[i] += impulseX;
+    //         velYs[i] += impulseY;
+    //     }
+    // }
 
     prevAccelX = accelX;
     prevAccelY = accelY;

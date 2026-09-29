@@ -18,13 +18,13 @@ using namespace std;
 #define H                   DT / SUBSTEPS
 
 #define NUM_PARTICLES       256
-#define PARTICLES_PER_CELL  16
+#define PARTICLES_PER_CELL  8
 
 #define KERNEL_RADIUS       1.25
-#define PRESSURE_MULT       4
+#define PRESSURE_MULT       15
 #define VISCOSITY_MULT      0.01
 #define DAMPING             0.01
-#define WALL_RESTITUTION    0.85
+#define WALL_RESTITUTION    0.6
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_DIM    (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
