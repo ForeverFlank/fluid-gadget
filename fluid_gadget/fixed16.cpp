@@ -74,7 +74,9 @@ struct fixed16
     fixed16 operator*(fixed16 rhs)
     {
         int32_t res = value * rhs.value;
-        return fixed16(static_cast<int16_t>(res >> 8));
+        int round = 1 & (res >> 7);
+
+        return fixed16(static_cast<int16_t>((res >> 8) + round));
     }
 
     fixed16 operator/(fixed16 rhs)
@@ -92,6 +94,12 @@ struct fixed16
 
     void operator/=(fixed16 rhs) { (*this) = (*this) / rhs; }
 
+
+    bool operator==(fixed16 rhs) { return value == rhs.value; }
+
+    bool operator<=(fixed16 rhs) { return value <= rhs.value; }
+
+    bool operator>=(fixed16 rhs) { return value >= rhs.value; }
 
     bool operator<(fixed16 rhs) { return value < rhs.value; }
 

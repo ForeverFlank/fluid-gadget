@@ -23,8 +23,8 @@ using namespace std;
 #define KERNEL_RADIUS       4
 #define WALL_RESTITUTION    0.85
 #define PRESSURE_MULT       20
-#define VISCOSITY_MULT      0
-#define DAMPING             0.0
+#define VISCOSITY_MULT      0.2
+#define DAMPING             0.01
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_SIZE   (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
@@ -39,7 +39,7 @@ const fixed16 viscosityMult = fixed16(static_cast<float>(VISCOSITY_MULT));
 
 
 fixed16 gravityX = fixed16(0.f);
-fixed16 gravityY = fixed16(-10.f);
+fixed16 gravityY = fixed16(-5.f);
 fixed16 currentRotation = fixed16(0.f);
 fixed16 lastRotation = currentRotation;
 
@@ -99,11 +99,11 @@ void updateSpatialGrid(
     fixed16 *predPosYs,
     SpatialGridCell *spatialGrid)
 {
-    for (int i = 0; i < SPATIAL_GRID_SIZE; i++)
+    for (int yi = 0; yi < SPATIAL_GRID_SIZE; yi++)
     {
-        for (int j = 0; j < SPATIAL_GRID_SIZE; j++)
+        for (int xi = 0; xi < SPATIAL_GRID_SIZE; xi++)
         {
-            spatialGrid[j * SPATIAL_GRID_SIZE + i].size = 0;
+            spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size = 0;
         }
     }
 
@@ -119,13 +119,12 @@ void updateSpatialGrid(
             &yi
         );
 
-        if (spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size == PARTICLES_PER_CELL - 1) continue;
+        SpatialGridCell &cell = spatialGrid[yi * SPATIAL_GRID_SIZE + xi];
 
-        spatialGrid[yi * SPATIAL_GRID_SIZE + xi].array[
-            spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size
-        ] = i;
+        if (cell.size == PARTICLES_PER_CELL - 1) continue;
 
-        spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size += 1;
+        cell.array[cell.size++] = i;
+        // spatialGrid[index].size += 1;
     }
 };
 
@@ -160,8 +159,7 @@ void nearbyIndices(
 
             for (int i = 0; i < cell.size; i++)
             {
-                out_indices[*out_indicesSize] = cell.array[i];
-                (*out_indicesSize)++;
+                out_indices[(*out_indicesSize)++] = cell.array[i];
             }
         }
     }
@@ -255,7 +253,7 @@ void calculateForce(
         fixed16 pressure = density * pressureSlope;
 
         forceX += pressure * dirx * pressuerMult;
-        forceY+= pressure * diry * pressuerMult;
+        forceY += pressure * diry * pressuerMult;
 
         // viscosity
         fixed16 dvx = velXs[i] - velXs[index];
@@ -264,7 +262,7 @@ void calculateForce(
         fixed16 viscosityInfluence = smoothingKernel(dist);
 
         forceX += dvx * viscosityInfluence * viscosityMult;
-        forceY+= dvy * viscosityInfluence * viscosityMult;
+        forceY += dvy * viscosityInfluence * viscosityMult;
     }
 
     *out_forceX = forceX;
@@ -303,7 +301,6 @@ void updateSim(
             i
         );
     }
-
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
@@ -348,8 +345,6 @@ void updateSim(
         fixed16(0.5f * HEIGHT)
     };
 
-    // return;
-
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
         for (int w = 0; w < 4; w++)
@@ -374,17 +369,17 @@ void updateSim(
 
                 fixed16 vdot = normalX * relVelX + normalY * relVelY;
 
-                fixed16 reflectedVelX =
-                    relVelX - fixed16(static_cast<float>(1. + WALL_RESTITUTION)) * vdot * normalX + wallVelX;
-                fixed16 reflectedVelY =
-                    relVelY - fixed16(static_cast<float>(1. + WALL_RESTITUTION)) * vdot * normalY + wallVelY;
+                if (vdot == fixed16(0.f)) continue;
+
+                fixed16 reflectFactor = fixed16(static_cast<float>(1. + WALL_RESTITUTION));
+
+                fixed16 reflectedVelX = relVelX - reflectFactor * vdot * normalX + wallVelX;
+                fixed16 reflectedVelY = relVelY - reflectFactor * vdot * normalY + wallVelY;
 
                 fixed16 dtFrac = pdot / vdot;
-                posXs[i] -= velXs[i] * dtFrac;
-                posYs[i] -= velYs[i] * dtFrac;
 
-                posXs[i] += reflectedVelX * dtFrac;
-                posYs[i] += reflectedVelY * dtFrac;
+                posXs[i] += (reflectedVelX - velXs[i]) * dtFrac;
+                posYs[i] += (reflectedVelY - velYs[i]) * dtFrac;
 
                 velXs[i] = reflectedVelX;
                 velYs[i] = reflectedVelY;
@@ -409,7 +404,7 @@ int main()
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
         float x = fmod(counter, 1.f);
-        float y = (counter - x) * 0.03f;
+        float y = (counter - x) * 0.03f + 0.4f;
 
         posXs[i] = fixed16((x - 0.5f) * WIDTH);
         posYs[i] = fixed16((y - 0.5f) * HEIGHT);

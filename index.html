@@ -266,14 +266,15 @@
 
                     const vdot = normal[0] * relVelx + normal[1] * relVely;
 
-                    // console.log(vdot)
-
                     const reflectedVelx =
                         relVelx - (1 + wallRestitution) * vdot * normal[0] + wallVelx;
                     const reflectedVely =
                         relVely - (1 + wallRestitution) * vdot * normal[1] + wallVely;
 
                     const dtFrac = pdot / vdot;
+
+                    // console.log(dtFrac / h)
+
                     positions[i][0] -= velocities[i][0] * dtFrac;
                     positions[i][1] -= velocities[i][1] * dtFrac;
                     positions[i][0] += reflectedVelx * dtFrac;
