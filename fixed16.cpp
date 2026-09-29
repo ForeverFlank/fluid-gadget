@@ -1,4 +1,8 @@
+#ifndef FIXED16_H
+#define FIXED16_H
+
 #include <inttypes.h>
+
 
 const int16_t SQRT_LOOKUP[] = {
        0,  256,  362,  443,  512,  572,  627,  677,
@@ -139,3 +143,5 @@ fixed16 max(fixed16 lhs, fixed16 rhs)
 {
     return lhs > rhs ? lhs : rhs;
 }
+
+#endif // FIXED16_H

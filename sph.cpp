@@ -318,9 +318,9 @@ void updateSim(
     float cd = cos(dRotation);
     float sd = sin(dRotation);
 
-    float normalXs[] = {c, s, -c, -s};
-    float normalYs[] = {s, -c, -s, c};
-    float distances[] = {0.5f * WIDTH, 0.5f * HEIGHT, 0.5f * WIDTH, 0.5f * HEIGHT};
+    float normalXs[] = { c, s, -c, -s };
+    float normalYs[] = { s, -c, -s, c };
+    float distances[] = { 0.5f * WIDTH, 0.5f * HEIGHT, 0.5f * WIDTH, 0.5f * HEIGHT };
 
     // return;
 
@@ -370,8 +370,8 @@ void updateSim(
 
 int main()
 {
-    float posXs[NUM_PARTICLES] = {0};
-    float posYs[NUM_PARTICLES] = {0};
+    float posXs[NUM_PARTICLES] = { 0 };
+    float posYs[NUM_PARTICLES] = { 0 };
 
     float counter = 0;
 
@@ -385,13 +385,13 @@ int main()
         counter += 0.03;
     }
 
-    float predPosXs[NUM_PARTICLES] = {0};
-    float predPosYs[NUM_PARTICLES] = {0};
+    float predPosXs[NUM_PARTICLES] = { 0 };
+    float predPosYs[NUM_PARTICLES] = { 0 };
 
-    float velXs[NUM_PARTICLES] = {0};
-    float velYs[NUM_PARTICLES] = {0};
+    float velXs[NUM_PARTICLES] = { 0 };
+    float velYs[NUM_PARTICLES] = { 0 };
 
-    float densities[NUM_PARTICLES] = {0};
+    float densities[NUM_PARTICLES] = { 0 };
     SpatialGridCell spatialGrid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
 
@@ -412,7 +412,7 @@ int main()
             spatialGrid
         );
 
-        bool buf[DISPLAY_WIDTH][DISPLAY_HEIGHT] = {false};
+        bool buf[DISPLAY_WIDTH][DISPLAY_HEIGHT] = { false };
 
         float c = cos(-currentRotation);
         float s = sin(-currentRotation);

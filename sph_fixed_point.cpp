@@ -7,8 +7,8 @@
 using namespace std;
 
 
-#define WIDTH               64
-#define HEIGHT              32
+#define WIDTH               50
+#define HEIGHT              25
 
 #define DISPLAY_WIDTH       32
 #define DISPLAY_HEIGHT      16
@@ -20,14 +20,14 @@ using namespace std;
 #define NUM_PARTICLES       256
 #define PARTICLES_PER_CELL  16
 
-#define KERNEL_RADIUS       1.8
-#define PRESSURE_MULT       50
+#define KERNEL_RADIUS       1.25
+#define PRESSURE_MULT       20
 #define VISCOSITY_MULT      0.01
 #define DAMPING             0.01
 #define WALL_RESTITUTION    0.85
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
-#define SPATIAL_GRID_SIZE   (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
+#define SPATIAL_GRID_DIM    (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
 
 
 
@@ -36,10 +36,11 @@ const fixed16 h  = fixed16(static_cast<float>(H));
 const fixed16 kernelRadius  = fixed16(static_cast<float>(KERNEL_RADIUS));
 const fixed16 pressuerMult  = fixed16(static_cast<float>(PRESSURE_MULT));
 const fixed16 viscosityMult = fixed16(static_cast<float>(VISCOSITY_MULT));
+const fixed16 damping       = fixed16(static_cast<float>(DAMPING));
 
 
 fixed16 gravityX = fixed16(0.f);
-fixed16 gravityY = fixed16(-5.f);
+fixed16 gravityY = fixed16(-1.f);
 fixed16 currentRotation = fixed16(0.f);
 fixed16 lastRotation = currentRotation;
 
@@ -85,10 +86,10 @@ void spatialGridCoord(
     int16_t yi = floor((predPosYs[index] + offset) / kernelRadius).to_int();
 
     if (xi < 0) xi = 0;
-    if (xi >= SPATIAL_GRID_SIZE) xi = SPATIAL_GRID_SIZE - 1;
+    if (xi >= SPATIAL_GRID_DIM) xi = SPATIAL_GRID_DIM - 1;
 
     if (yi < 0) yi = 0;
-    if (yi >= SPATIAL_GRID_SIZE) yi = SPATIAL_GRID_SIZE - 1;
+    if (yi >= SPATIAL_GRID_DIM) yi = SPATIAL_GRID_DIM - 1;
 
     *out_xi = xi;
     *out_yi = yi;
@@ -99,11 +100,11 @@ void updateSpatialGrid(
     fixed16 *predPosYs,
     SpatialGridCell *spatialGrid)
 {
-    for (int yi = 0; yi < SPATIAL_GRID_SIZE; yi++)
+    for (int yi = 0; yi < SPATIAL_GRID_DIM; yi++)
     {
-        for (int xi = 0; xi < SPATIAL_GRID_SIZE; xi++)
+        for (int xi = 0; xi < SPATIAL_GRID_DIM; xi++)
         {
-            spatialGrid[yi * SPATIAL_GRID_SIZE + xi].size = 0;
+            spatialGrid[yi * SPATIAL_GRID_DIM + xi].size = 0;
         }
     }
 
@@ -119,7 +120,7 @@ void updateSpatialGrid(
             &yi
         );
 
-        SpatialGridCell &cell = spatialGrid[yi * SPATIAL_GRID_SIZE + xi];
+        SpatialGridCell &cell = spatialGrid[yi * SPATIAL_GRID_DIM + xi];
 
         if (cell.size == PARTICLES_PER_CELL - 1) continue;
 
@@ -147,15 +148,15 @@ void nearbyIndices(
     );
 
     int xiMin = max(xi - 1, 0);
-    int xiMax = min(xi + 1, SPATIAL_GRID_SIZE - 1);
+    int xiMax = min(xi + 1, SPATIAL_GRID_DIM - 1);
     int yiMin = max(yi - 1, 0);
-    int yiMax = min(yi + 1, SPATIAL_GRID_SIZE - 1);
+    int yiMax = min(yi + 1, SPATIAL_GRID_DIM - 1);
 
     for (int xj = xiMin; xj <= xiMax; xj++)
     {
         for (int yj = yiMin; yj <= yiMax; yj++)
         {
-            SpatialGridCell cell = spatialGrid[yj * SPATIAL_GRID_SIZE + xj];
+            SpatialGridCell cell = spatialGrid[yj * SPATIAL_GRID_DIM + xj];
 
             for (int i = 0; i < cell.size; i++)
             {
@@ -321,8 +322,8 @@ void updateSim(
         velXs[i] += force_x * h;
         velYs[i] += force_y * h;
 
-        velXs[i] *= fixed16(static_cast<float>(1. - DAMPING * H));
-        velYs[i] *= fixed16(static_cast<float>(1. - DAMPING * H));
+        velXs[i] -= velXs[i] * damping * h;
+        velYs[i] -= velYs[i] * damping * h;
 
         posXs[i] += velXs[i] * h;
         posYs[i] += velYs[i] * h;
@@ -396,6 +397,15 @@ int main()
     fixed16 posXs[NUM_PARTICLES] = { fixed16(0.f) };
     fixed16 posYs[NUM_PARTICLES] = { fixed16(0.f) };
 
+    fixed16 predPosXs[NUM_PARTICLES] = { fixed16(0.f) };
+    fixed16 predPosYs[NUM_PARTICLES] = { fixed16(0.f) };
+
+    fixed16 velXs[NUM_PARTICLES] = { fixed16(0.f) };
+    fixed16 velYs[NUM_PARTICLES] = { fixed16(0.f) };
+
+    fixed16 densities[NUM_PARTICLES] = { fixed16(0.f) };
+    SpatialGridCell spatialGrid[SPATIAL_GRID_DIM * SPATIAL_GRID_DIM];
+
     // HACK
     // although this only run once so it's not much of a concern
 
@@ -412,14 +422,7 @@ int main()
         counter += step;
     }
 
-    fixed16 predPosXs[NUM_PARTICLES] = { fixed16(0.f) };
-    fixed16 predPosYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-    fixed16 velXs[NUM_PARTICLES] = { fixed16(0.f) };
-    fixed16 velYs[NUM_PARTICLES] = { fixed16(0.f) };
-
-    fixed16 densities[NUM_PARTICLES] = { fixed16(0.f) };
-    SpatialGridCell spatialGrid[SPATIAL_GRID_SIZE * SPATIAL_GRID_SIZE];
 
     int j = 0;
     int k = 0;
@@ -435,21 +438,21 @@ int main()
             if (k == 0)
             {
                 gravityX = fixed16(0.f);
-                gravityY = fixed16(-5.f);
+                gravityY = fixed16(-1.f);
             }
             else if (k == 1)
             {
-                gravityX = fixed16(5.f);
+                gravityX = fixed16(1.f);
                 gravityY = fixed16(0.f);
             }
             else if (k == 2)
             {
                 gravityX = fixed16(0.f);
-                gravityY = fixed16(5.f);
+                gravityY = fixed16(1.f);
             }
             else if (k == 3)
             {
-                gravityX = fixed16(-5.f);
+                gravityX = fixed16(-1.f);
                 gravityY = fixed16(0.f);
             }
         }

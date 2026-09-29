@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include "../fixed16.cpp"
+
 
 #define i2c_Address 0x3c
 
@@ -10,31 +12,43 @@
 #define OLED_RESET          -1
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+#define PIXEL_SIZE          4
 
-#define WIDTH               128
-#define HEIGHT              64
+#define WIDTH               50
+#define HEIGHT              25
+
+#define DISPLAY_WIDTH       SCREEN_WIDTH / PIXEL_SIZE
+#define DISPLAY_HEIGHT      SCREEN_HEIGHT / PIXEL_SIZE
 
 #define DT                  0.1
-#define SUBSTEPS            1
+#define SUBSTEPS            8
 #define H                   DT / SUBSTEPS
 
-#define NUM_PARTICLES       256
+#define NUM_PARTICLES       128
 #define PARTICLES_PER_CELL  8
 
-#define KERNEL_RADIUS       16
-#define WALL_RESTITUTION    0.85
+#define KERNEL_RADIUS       1.25
 #define PRESSURE_MULT       20
-#define VISCOSITY_MULT      0
-#define DAMPING             0.0
+#define VISCOSITY_MULT      0.01
+#define DAMPING             0.01
+#define WALL_RESTITUTION    0.85
 
 #define CONTAINER_HYP       sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT)
 #define SPATIAL_GRID_DIM    (int)ceil(CONTAINER_HYP / KERNEL_RADIUS)
 
 
-float gravityX = 0;
-float gravityY = 10;
-float currentRotation = 0;
-float lastRotation = currentRotation;
+const fixed16 h  = fixed16(static_cast<float>(H));
+
+const fixed16 kernelRadius  = fixed16(static_cast<float>(KERNEL_RADIUS));
+const fixed16 pressuerMult  = fixed16(static_cast<float>(PRESSURE_MULT));
+const fixed16 viscosityMult = fixed16(static_cast<float>(VISCOSITY_MULT));
+const fixed16 damping       = fixed16(static_cast<float>(DAMPING));
+
+
+fixed16 gravityX = fixed16(0.f);
+fixed16 gravityY = fixed16(-1.f);
+fixed16 currentRotation = fixed16(0.f);
+fixed16 lastRotation = currentRotation;
 
 
 struct SpatialGridCell
@@ -44,34 +58,38 @@ struct SpatialGridCell
 };
 
 
-float smoothingKernel(float distance)
+fixed16 smoothingKernel(fixed16 distance)
 {
-    float normalized = distance / KERNEL_RADIUS;
-    float value = max(1.f - normalized * normalized, 0.f);
+    fixed16 normalized = distance / kernelRadius;
+    fixed16 value = max(
+        fixed16(1.f) - normalized * normalized,
+        fixed16(0.f)
+    );
     return value * value * value;
 }
 
-float d_smoothingKernel(float distance)
+fixed16 d_smoothingKernel(fixed16 distance)
 {
-    float normalized = distance / KERNEL_RADIUS;
-    float value = max(1 - normalized * normalized, 0.f);
-    return -6.f * value * value * normalized / KERNEL_RADIUS;
+    fixed16 normalized = distance / kernelRadius;
+    fixed16 value = max(
+        fixed16(1.f) - normalized * normalized,
+        fixed16(0.f)
+    );
+    return fixed16(-6.f) * value * value * normalized / kernelRadius;
 }
 
 
 void spatialGridCoord(
-    float *predPosXs,
-    float *predPosYs,
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
     int index,
     int16_t *out_xi,
     int16_t *out_yi)
 {
-    int16_t xi =
-        (int16_t)floor(
-            (predPosXs[index] + CONTAINER_HYP * 0.5) / KERNEL_RADIUS);
-    int16_t yi =
-        (int16_t)floor(
-            (predPosYs[index] + CONTAINER_HYP * 0.5) / KERNEL_RADIUS);
+    fixed16 offset = fixed16(static_cast<float>(CONTAINER_HYP * 0.5f));
+
+    int16_t xi = floor((predPosXs[index] + offset) / kernelRadius).to_int();
+    int16_t yi = floor((predPosYs[index] + offset) / kernelRadius).to_int();
 
     if (xi < 0) xi = 0;
     if (xi >= SPATIAL_GRID_DIM) xi = SPATIAL_GRID_DIM - 1;
@@ -84,15 +102,15 @@ void spatialGridCoord(
 }
 
 void updateSpatialGrid(
-    float *predPosXs,
-    float *predPosYs,
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
     SpatialGridCell *spatialGrid)
 {
-    for (int i = 0; i < SPATIAL_GRID_DIM; i++)
+    for (int yi = 0; yi < SPATIAL_GRID_DIM; yi++)
     {
-        for (int j = 0; j < SPATIAL_GRID_DIM; j++)
+        for (int xi = 0; xi < SPATIAL_GRID_DIM; xi++)
         {
-            spatialGrid[j * SPATIAL_GRID_DIM + i].size = 0;
+            spatialGrid[yi * SPATIAL_GRID_DIM + xi].size = 0;
         }
     }
 
@@ -108,19 +126,18 @@ void updateSpatialGrid(
             &yi
         );
 
-        if (spatialGrid[yi * SPATIAL_GRID_DIM + xi].size == PARTICLES_PER_CELL - 1) continue;
+        SpatialGridCell &cell = spatialGrid[yi * SPATIAL_GRID_DIM + xi];
 
-        spatialGrid[yi * SPATIAL_GRID_DIM + xi].array[
-            spatialGrid[yi * SPATIAL_GRID_DIM + xi].size
-        ] = i;
+        if (cell.size == PARTICLES_PER_CELL - 1) continue;
 
-        spatialGrid[yi * SPATIAL_GRID_DIM + xi].size += 1;
+        cell.array[cell.size++] = i;
+        // spatialGrid[index].size += 1;
     }
 };
 
 void nearbyIndices(
-    float *predPosXs,
-    float *predPosYs,
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
     SpatialGridCell *spatialGrid,
     int index,
     int *out_indices,
@@ -149,21 +166,20 @@ void nearbyIndices(
 
             for (int i = 0; i < cell.size; i++)
             {
-                out_indices[*out_indicesSize] = cell.array[i];
-                (*out_indicesSize)++;
+                out_indices[(*out_indicesSize)++] = cell.array[i];
             }
         }
     }
 }
 
 
-float calculateDensity(
-    float *predPosXs,
-    float *predPosYs,
+fixed16 calculateDensity(
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
     SpatialGridCell *spatialGrid,
     int index)
 {
-    float res = 0;
+    fixed16 res = fixed16(0.f);
 
     int indices[9 * PARTICLES_PER_CELL];
     int indicesSize = 0;
@@ -182,11 +198,11 @@ float calculateDensity(
         int i = indices[j];
         if (index == i) continue;
 
-        float dx = predPosXs[i] - predPosXs[index];
-        float dy = predPosYs[i] - predPosYs[index];
-        float dist = sqrt(dx * dx + dy * dy);
+        fixed16 dx = predPosXs[i] - predPosXs[index];
+        fixed16 dy = predPosYs[i] - predPosYs[index];
+        fixed16 dist = sqrt(dx * dx + dy * dy);
 
-        if (dist > KERNEL_RADIUS) continue;
+        if (dist > kernelRadius) continue;
 
         res += smoothingKernel(dist);
     }
@@ -196,18 +212,18 @@ float calculateDensity(
 
 
 void calculateForce(
-    float *predPosXs,
-    float *predPosYs,
-    float *velXs,
-    float *velYs,
-    float *densities,
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
+    fixed16 *velXs,
+    fixed16 *velYs,
+    fixed16 *densities,
     SpatialGridCell *spatialGrid,
     int index,
-    float *out_forceX,
-    float *out_forceY)
+    fixed16 *out_forceX,
+    fixed16 *out_forceY)
 {
-    float forceX = gravityX;
-    float forceY = gravityY;
+    fixed16 forceX = gravityX;
+    fixed16 forceY = gravityY;
 
     int indices[9 * PARTICLES_PER_CELL];
     int indicesSize = 0;
@@ -226,30 +242,34 @@ void calculateForce(
         int i = indices[j];
         if (index == i) continue;
 
-        float dx = predPosXs[i] - predPosXs[index];
-        float dy = predPosYs[i] - predPosYs[index];
-        float dist = sqrt(dx * dx + dy * dy);
+        fixed16 dx = predPosXs[i] - predPosXs[index];
+        fixed16 dy = predPosYs[i] - predPosYs[index];
+        fixed16 dist = sqrt(dx * dx + dy * dy);
 
-        if (dist > KERNEL_RADIUS) continue;
+        if (dist > kernelRadius) continue;
 
-        float dirx = dist > 0 ? dx / dist : 0;
-        float diry = dist > 0 ? dy / dist : 0;
+        fixed16 dirx = dist > fixed16(0.f)
+            ? dx / dist
+            : fixed16(0.f);
+        fixed16 diry = dist > fixed16(0.f)
+            ? dy / dist
+            : fixed16(0.f);
 
-        float density = densities[i];
-        float pressureSlope = d_smoothingKernel(dist);
-        float pressure = density * pressureSlope;
+        fixed16 density = densities[i];
+        fixed16 pressureSlope = d_smoothingKernel(dist);
+        fixed16 pressure = density * pressureSlope;
 
-        forceX += pressure * dirx * PRESSURE_MULT;
-        forceY += pressure * diry * PRESSURE_MULT;
+        forceX += pressure * dirx * pressuerMult;
+        forceY += pressure * diry * pressuerMult;
 
         // viscosity
-        float dvx = velXs[i] - velXs[index];
-        float dvy = velYs[i] - velYs[index];
+        fixed16 dvx = velXs[i] - velXs[index];
+        fixed16 dvy = velYs[i] - velYs[index];
 
-        float viscosityInfluence = smoothingKernel(dist);
+        fixed16 viscosityInfluence = smoothingKernel(dist);
 
-        forceX += dvx * viscosityInfluence * VISCOSITY_MULT;
-        forceY += dvy * viscosityInfluence * VISCOSITY_MULT;
+        forceX += dvx * viscosityInfluence * viscosityMult;
+        forceY += dvy * viscosityInfluence * viscosityMult;
     }
 
     *out_forceX = forceX;
@@ -257,22 +277,22 @@ void calculateForce(
 }
 
 void updateSim(
-    float *posXs,
-    float *posYs,
-    float *predPosXs,
-    float *predPosYs,
-    float *velXs,
-    float *velYs,
-    float *densities,
+    fixed16 *posXs,
+    fixed16 *posYs,
+    fixed16 *predPosXs,
+    fixed16 *predPosYs,
+    fixed16 *velXs,
+    fixed16 *velYs,
+    fixed16 *densities,
     SpatialGridCell *spatialGrid)
 {
-    float dRotation = currentRotation - lastRotation;
+    fixed16 dRotation = currentRotation - lastRotation;
     lastRotation = currentRotation;
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        predPosXs[i] = posXs[i] + velXs[i] * H;
-        predPosYs[i] = posYs[i] + velYs[i] * H;
+        predPosXs[i] = posXs[i] + velXs[i] * h;
+        predPosYs[i] = posYs[i] + velYs[i] * h;
     }
 
 
@@ -289,10 +309,9 @@ void updateSim(
         );
     }
 
-
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        float force_x, force_y;
+        fixed16 force_x, force_y;
 
         calculateForce(
             predPosXs,
@@ -306,62 +325,68 @@ void updateSim(
             &force_y
         );
 
-        velXs[i] += force_x * H;
-        velYs[i] += force_y * H;
+        velXs[i] += force_x * h;
+        velYs[i] += force_y * h;
 
-        velXs[i] *= (1 - DAMPING * H);
-        velYs[i] *= (1 - DAMPING * H);
+        velXs[i] -= velXs[i] * damping * h;
+        velYs[i] -= velYs[i] * damping * h;
 
-        posXs[i] += velXs[i] * H;
-        posYs[i] += velYs[i] * H;
+        posXs[i] += velXs[i] * h;
+        posYs[i] += velYs[i] * h;
     }
 
+    // HACK
 
-    float c = cos(currentRotation);
-    float s = sin(currentRotation);
+    fixed16 c = fixed16(cos(currentRotation.to_float()));
+    fixed16 s = fixed16(sin(currentRotation.to_float()));
 
-    float cd = cos(dRotation);
-    float sd = sin(dRotation);
+    fixed16 cd = fixed16(cos(dRotation.to_float()));
+    fixed16 sd = fixed16(sin(dRotation.to_float()));
 
-    float normalXs[] = {c, s, -c, -s};
-    float normalYs[] = {s, -c, -s, c};
-    float distances[] = {0.5f * WIDTH, 0.5f * HEIGHT, 0.5f * WIDTH, 0.5f * HEIGHT};
-
-    // return;
+    fixed16 normalXs[] = { c, s, -c, -s };
+    fixed16 normalYs[] = { s, -c, -s, c };
+    fixed16 distances[] = {
+        fixed16(0.5f * WIDTH),
+        fixed16(0.5f * HEIGHT),
+        fixed16(0.5f * WIDTH),
+        fixed16(0.5f * HEIGHT)
+    };
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
         for (int w = 0; w < 4; w++)
         {
-            float normalX = normalXs[w];
-            float normalY = normalYs[w];
+            fixed16 normalX = normalXs[w];
+            fixed16 normalY = normalYs[w];
 
-            float distance = distances[w];
-            float pdot =
+            fixed16 distance = distances[w];
+            fixed16 pdot =
                 normalX * (posXs[i] + normalX * distance) +
                 normalY * (posYs[i] + normalY * distance);
 
-            if (pdot < 0)
+            if (pdot < fixed16(0.f))
             {
-                float wallVelX = ((cd - 1) * posXs[i] - sd * posYs[i]) / H;
-                float wallVelY = (sd * posXs[i] + (cd - 1) * posYs[i]) / H;
+                fixed16 wallVelX =
+                    ((cd - fixed16(1.f)) * posXs[i] - sd * posYs[i]) / h;
+                fixed16 wallVelY =
+                    (sd * posXs[i] + (cd - fixed16(1.f)) * posYs[i]) / h;
 
-                float relVelX = velXs[i] - wallVelX;
-                float relVelY = velYs[i] - wallVelY;
+                fixed16 relVelX = velXs[i] - wallVelX;
+                fixed16 relVelY = velYs[i] - wallVelY;
 
-                float vdot = normalX * relVelX + normalY * relVelY;
+                fixed16 vdot = normalX * relVelX + normalY * relVelY;
 
-                float reflectedVelX =
-                    relVelX - (1 + WALL_RESTITUTION) * vdot * normalX + wallVelX;
-                float reflectedVelY =
-                    relVelY - (1 + WALL_RESTITUTION) * vdot * normalY + wallVelY;
+                if (vdot == fixed16(0.f)) continue;
 
-                float dtFrac = pdot / vdot;
-                posXs[i] -= velXs[i] * dtFrac;
-                posYs[i] -= velYs[i] * dtFrac;
+                fixed16 reflectFactor = fixed16(static_cast<float>(1. + WALL_RESTITUTION));
 
-                posXs[i] += reflectedVelX * dtFrac;
-                posYs[i] += reflectedVelY * dtFrac;
+                fixed16 reflectedVelX = relVelX - reflectFactor * vdot * normalX + wallVelX;
+                fixed16 reflectedVelY = relVelY - reflectFactor * vdot * normalY + wallVelY;
+
+                fixed16 dtFrac = pdot / vdot;
+
+                posXs[i] += (reflectedVelX - velXs[i]) * dtFrac;
+                posYs[i] += (reflectedVelY - velYs[i]) * dtFrac;
 
                 velXs[i] = reflectedVelX;
                 velYs[i] = reflectedVelY;
@@ -371,23 +396,22 @@ void updateSim(
 };
 
 
-float posXs[NUM_PARTICLES] = {0};
-float posYs[NUM_PARTICLES] = {0};
+fixed16 posXs[NUM_PARTICLES] = { fixed16(0.f) };
+fixed16 posYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-float counter = 0;
+fixed16 predPosXs[NUM_PARTICLES] = { fixed16(0.f) };
+fixed16 predPosYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-float predPosXs[NUM_PARTICLES] = {0};
-float predPosYs[NUM_PARTICLES] = {0};
+fixed16 velXs[NUM_PARTICLES] = { fixed16(0.f) };
+fixed16 velYs[NUM_PARTICLES] = { fixed16(0.f) };
 
-float velXs[NUM_PARTICLES] = {0};
-float velYs[NUM_PARTICLES] = {0};
-
-float densities[NUM_PARTICLES] = {0};
+fixed16 densities[NUM_PARTICLES] = { fixed16(0.f) };
 SpatialGridCell spatialGrid[SPATIAL_GRID_DIM * SPATIAL_GRID_DIM];
 
-#define BITMAP_SIZE         WIDTH * HEIGHT / 8
 
-uint8_t bitmap[BITMAP_SIZE] = {0};
+// #define BITMAP_SIZE SCREEN_WIDTH * SCREEN_HEIGHT / 8
+
+// uint8_t bitmap[BITMAP_SIZE] = { 0 };
 int i = 0;
 
 void setup()
@@ -397,19 +421,24 @@ void setup()
     delay(250);
     display.begin(i2c_Address, true);
 
+    float counter = 0;
+    const float step = 0.021f;
+
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        float x = fmod(counter, 1.f);
-        float y = (counter - x) * 0.03f + 0.2f;
+        float x = fmod(counter, 0.51f);
+        float y = (counter - x) * step * 5.f;
 
-        posXs[i] = (x - 0.5f) * WIDTH;
-        posYs[i] = (y - 0.5f) * HEIGHT;
-        counter += 0.03;
+        posXs[i] = fixed16((x - 0.5f) * WIDTH);
+        posYs[i] = fixed16((y - 0.5f) * HEIGHT);
+        counter += step;
     }
 }
 
 void loop()
 {
+    long startMillis = millis();
+
     for (int i = 0; i < SUBSTEPS; i++)
     {
         updateSim(
@@ -424,39 +453,56 @@ void loop()
         );
     }
 
-    float c = cos(-currentRotation);
-    float s = sin(-currentRotation);
+    long updateSimMillis = millis();
 
-    for (int i = 0; i < BITMAP_SIZE; i++)
-    {
-        bitmap[i] = 0;
-    }
+    fixed16 c = fixed16(cos(-currentRotation.to_float()));
+    fixed16 s = fixed16(sin(-currentRotation.to_float()));
+
+    // for (int i = 0; i < BITMAP_SIZE; i++)
+    // {
+    //     bitmap[i] = 0;
+    // }
+
+    display.clearDisplay();
 
     for (int i = 0; i < NUM_PARTICLES; i++)
     {
-        float x = c * posXs[i] - s * posYs[i];
-        float y = s * posXs[i] + c * posYs[i];
+        fixed16 x = c * posXs[i] - s * posYs[i];
+        fixed16 y = s * posXs[i] + c * posYs[i];
 
-        int xi = (int)((0.5f + x / WIDTH) * WIDTH);
-        int yi = (int)((0.5f + y / HEIGHT) * HEIGHT);
+        int xi = (
+            (fixed16(0.5f) + x / fixed16(static_cast<float>(WIDTH)))
+            * fixed16(static_cast<float>(DISPLAY_WIDTH))).to_int();
+        int yi = (
+            (fixed16(0.5f) + y / fixed16(static_cast<float>(HEIGHT)))
+            * fixed16(static_cast<float>(DISPLAY_HEIGHT))).to_int();
 
-        xi = min(xi, WIDTH - 1);
-        yi = min(yi, HEIGHT - 1);
+        xi = min(xi, DISPLAY_WIDTH - 1);
+        yi = min(yi, DISPLAY_HEIGHT - 1);
 
-        int bitmapIndex = (yi * WIDTH + xi) / 8;
+        yi = DISPLAY_HEIGHT - yi - 1;
 
-        bitmap[bitmapIndex] |= 1 << (xi % 8);
+        // int bitmapIndex = (yi * DISPLAY_WIDTH + xi) / 8;
+
+        // bitmap[bitmapIndex] |= 1 << (xi % 8);
+        display.fillRect(xi * PIXEL_SIZE, yi * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, 1);
     }
 
+    display.display();
 
-    display.clearDisplay();
+
+    long displayMillis = millis();
+
 
     // bitmap[i]++;
     // i++;
     // if (i == 1024) i = 0;
 
-    display.drawBitmap(0, 0, bitmap, 128, 64, 1);
-    display.display();
+    // display.drawBitmap(0, 0, bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, 1);
 
-    // Serial.println(millis());
+    Serial.print("update ms = ");
+    Serial.print(updateSimMillis - startMillis);
+
+    Serial.print("  display ms = ");
+    Serial.println(displayMillis - updateSimMillis);
 }
